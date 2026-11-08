@@ -84,15 +84,15 @@ function setGameMode(m) {
 }
 
 async function startHosting() {
+  S.n = 1;
   initRows();
   S.msg = "Connecting to Peer network...";
   drawSetup();
   try {
+    NET.onLobbyUpdate = () => drawSetup();
     await initHost();
     S.netState = "lobby";
-    S.n = 1;
     S.msg = `Room ${NET.roomCode} ready! Share the code or link with friends.`;
-    NET.onLobbyUpdate = () => drawSetup();
     drawSetup();
   } catch (err) {
     S.msg = "Failed to create room: " + (err.message || err);
@@ -112,11 +112,11 @@ async function joinRoom(code) {
   S.msg = `Joining room ${code.toUpperCase()}...`;
   drawSetup();
   try {
+    NET.onLobbyUpdate = () => drawSetup();
     const myName = `Guest ${Math.floor(Math.random() * 900 + 100)}`;
     await initGuest(code, myName);
     S.netState = "lobby";
     S.msg = `Connected to room ${NET.roomCode}!`;
-    NET.onLobbyUpdate = () => drawSetup();
     drawSetup();
   } catch (err) {
     S.msg = "Failed to connect to room " + code.toUpperCase();

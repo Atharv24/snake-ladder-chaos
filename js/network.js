@@ -16,27 +16,23 @@ var NET = {
   hostConn: null,      // Guest: single hybrid connection to host
   chatHistory: [],
   onLobbyUpdate: null,
+  onJoinAck: null,
+  onJoinDenied: null,
   onAction: null,
   disconnectTimer: null,
   reconnecting: false,
+  httpPollTimer: null,
+  httpSeq: 0,
+  httpEnabled: true,
+  seenMsgs: new Set(),
 };
 
-// STUN + TURN servers so peers behind Symmetric NAT / CGNAT / mobile hotspots can connect
+// Fast public STUN servers (no dead openrelay TURN servers that stall ICE gathering)
 const ICE_CONFIG = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
-    {
-      urls: [
-        "turn:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-        "turns:openrelay.metered.ca:443?transport=tcp"
-      ],
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    }
+    { urls: "stun:stun.cloudflare.com:3478" }
   ]
 };
 
@@ -55,62 +51,50 @@ function fullPeerId(code) {
 
 // Send a packet over PeerJS's already-open WebSocket signaling channel (100% CGNAT/firewall-proof fallback)
 function wsSend(dstPeerId, data) {
-  if (!NET.peer) return false;
+  if (!NET.peer || !dstPeerId) return false;
   const sock = NET.peer.socket || NET.peer._socket;
-  if (!sock || typeof sock.send !== "function") return false;
-  try {
-    sock.send({
-      type: "CANDIDATE",
-      dst: dstPeerId,
-      payload: {
-        connectionId: "snc_ws",
-        data: data
-      }
-    });
-    return true;
-  } catch (e) {
-    console.warn("wsSend error:", e);
-    return false;
-  }
-}
-
-// Create a hybrid connection that uses WebRTC DataChannel when open and falls back to PeerJS WebSocket relay
-function createHybridConn(peerId, rtcConn) {
-  const hc = {
-    peer: peerId,
-    rtcConn: rtcConn || null,
-    open: true,
-    playerIndex: null,
-    send(msg) {
-      if (this.rtcConn && this.rtcConn.open) {
-        try {
-          this.rtcConn.send(msg);
-          return;
-        } catch (e) {}
-      }
-      wsSend(this.peer, msg);
+  if (!sock) return false;
+  const packet = {
+    type: "CANDIDATE",
+    dst: dstPeerId,
+    payload: {
+      _sncRelay: true,
+      connectionId: "snc_ws",
+      src: NET.myId,
+      data: data
     }
   };
-  return hc;
+  try {
+    const rawWs = sock._socket;
+    if (rawWs && rawWs.readyState === 1) {
+      rawWs.send(JSON.stringify(packet));
+      return true;
+    }
+    if (typeof sock.send === "function") {
+      sock.send(packet);
+      return true;
+    }
+  } catch (e) {
+    console.warn("wsSend error:", e);
+  }
+  return false;
 }
 
-// Listen on PeerJS's signaling WebSocket for fallback relay packets ("snc_ws") and EXPIRE/LEAVE events
+// Hook PeerJS's signaling WebSocket for fallback relay packets ("_sncRelay") and EXPIRE events
 function setupSocketRelay(peer, onInvalidRoom) {
-  const sock = peer.socket || peer._socket;
-  if (!sock || sock._sncHooked) return;
-  sock._sncHooked = true;
+  const sock = peer && (peer.socket || peer._socket);
+  if (!sock) return;
 
-  sock.on("message", raw => {
-    if (!raw) return;
-    // If the target room peerId doesn't exist on 0.peerjs.com, server sends EXPIRE
+  const onRawMsg = raw => {
+    if (!raw || typeof raw !== "object") return;
     if (raw.type === "EXPIRE" && onInvalidRoom) {
-      onInvalidRoom(new Error("Room not found or expired"));
+      onInvalidRoom(new Error("Room code not found or expired."));
       return;
     }
-    if (raw.type === "CANDIDATE" && raw.payload && raw.payload.connectionId === "snc_ws" && raw.payload.data) {
-      const srcPeerId = raw.src;
+    if (raw.payload && raw.payload._sncRelay && raw.payload.data) {
+      const srcPeerId = raw.payload.src || raw.src;
       const msg = raw.payload.data;
-      if (NET.isHost) {
+      if (NET.isHost && srcPeerId) {
         let hc = NET.peerMap[srcPeerId];
         if (!hc) {
           hc = createHybridConn(srcPeerId, null);
@@ -118,12 +102,102 @@ function setupSocketRelay(peer, onInvalidRoom) {
         }
         hc.open = true;
         handleNetData(msg, hc);
-      } else if (NET.hostConn) {
+      } else if (!NET.isHost && NET.hostConn) {
         NET.hostConn.open = true;
         handleNetData(msg, NET.hostConn);
       }
     }
-  });
+  };
+
+  const rawWs = sock._socket;
+  if (rawWs && typeof rawWs.addEventListener === "function" && !rawWs._sncHooked) {
+    rawWs._sncHooked = true;
+    rawWs.addEventListener("message", ev => {
+      try { onRawMsg(JSON.parse(ev.data)); } catch (e) {}
+    });
+  }
+  if (typeof sock.on === "function" && !sock._sncHooked) {
+    sock._sncHooked = true;
+    sock.on("message", onRawMsg);
+  }
+}
+
+// Send via built-in serve.py HTTP relay (/api/send) - 100% immune to Symmetric NAT / CGNAT
+function httpSend(dstPeerId, data) {
+  if (!NET.httpEnabled || !NET.roomCode || !NET.myId) return;
+  fetch("/api/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      room: NET.roomCode,
+      src: NET.myId,
+      dst: dstPeerId || "*",
+      data: data
+    })
+  }).catch(() => {});
+}
+
+// Poll built-in serve.py HTTP relay (/api/poll) every 220ms
+function startHttpRelay() {
+  if (NET.httpPollTimer) clearInterval(NET.httpPollTimer);
+  NET.httpSeq = 0;
+  NET.httpEnabled = true;
+  let busy = false;
+
+  NET.httpPollTimer = setInterval(async () => {
+    if (!NET.active || !NET.httpEnabled || !NET.roomCode || !NET.myId || busy) return;
+    busy = true;
+    try {
+      const r = await fetch(`/api/poll?room=${encodeURIComponent(NET.roomCode)}&peer=${encodeURIComponent(NET.myId)}&after=${NET.httpSeq}`);
+      if (!r.ok) {
+        // Static hosting without serve.py /api/poll: disable HTTP polling quietly
+        if (r.status === 404 || r.status === 405) NET.httpEnabled = false;
+        busy = false;
+        return;
+      }
+      const j = await r.json();
+      if (typeof j.seq === "number" && j.seq > NET.httpSeq) NET.httpSeq = j.seq;
+      if (Array.isArray(j.msgs)) {
+        j.msgs.forEach(m => {
+          if (!m || !m.data) return;
+          if (NET.isHost) {
+            let hc = NET.peerMap[m.src];
+            if (!hc) {
+              hc = createHybridConn(m.src, null);
+              NET.peerMap[m.src] = hc;
+            }
+            hc.open = true;
+            handleNetData(m.data, hc);
+          } else if (NET.hostConn) {
+            NET.hostConn.open = true;
+            handleNetData(m.data, NET.hostConn);
+          }
+        });
+      }
+    } catch (e) {}
+    busy = false;
+  }, 220);
+}
+
+// Create a hybrid connection that sends over WebRTC DataChannel (when open), PeerJS WebSocket relay, and HTTP relay
+function createHybridConn(peerId, rtcConn) {
+  const hc = {
+    peer: peerId,
+    rtcConn: rtcConn || null,
+    open: true,
+    playerIndex: null,
+    send(msg) {
+      if (msg && typeof msg === "object" && !msg._mid) {
+        msg._mid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      }
+      if (this.rtcConn && this.rtcConn.open) {
+        try { this.rtcConn.send(msg); } catch (e) {}
+      }
+      wsSend(this.peer, msg);
+      httpSend(this.peer, msg);
+    }
+  };
+  return hc;
 }
 
 // Initialize as Host
@@ -138,14 +212,22 @@ function initHost(customCode) {
     NET.joined = true;
     NET.connections = [];
     NET.peerMap = {};
+    NET.seenMsgs.clear();
+    NET.myId = pid;
+    startHttpRelay();
 
     if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
     NET.peer = new Peer(pid, { debug: 1, config: ICE_CONFIG });
 
+    let settled = false;
+    const finishHost = () => {
+      if (!settled) { settled = true; resolve(NET.roomCode); }
+    };
+
     NET.peer.on("open", id => {
       NET.myId = id;
       setupSocketRelay(NET.peer);
-      resolve(NET.roomCode);
+      finishHost();
     });
 
     NET.peer.on("connection", conn => {
@@ -154,18 +236,17 @@ function initHost(customCode) {
 
     NET.peer.on("error", err => {
       console.error("PeerJS Host Error:", err);
-      if (err.type === "unavailable-id") {
-        // Room code collision, retry with a fresh random code
+      if (err.type === "unavailable-id" && !settled) {
         NET.peer.destroy();
         initHost().then(resolve).catch(reject);
-      } else {
-        reject(err);
+      } else if (!settled) {
+        finishHost();
       }
     });
   });
 }
 
-// Initialize as Guest
+// Initialize as Guest (only resolves once JOIN_ACK arrives from Host!)
 function initGuest(code, playerName) {
   return new Promise((resolve, reject) => {
     NET.roomCode = code.toUpperCase().trim();
@@ -173,9 +254,12 @@ function initGuest(code, playerName) {
     NET.isHost = false;
     NET.active = true;
     NET.joined = false;
+    NET.seenMsgs.clear();
+    NET.myId = "guest-" + Math.random().toString(36).slice(2, 10);
 
-    if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
-    NET.peer = new Peer(null, { debug: 1, config: ICE_CONFIG });
+    const hc = createHybridConn(targetId, null);
+    NET.hostConn = hc;
+    startHttpRelay();
 
     let settled = false;
     let joinRetryTimer = null;
@@ -184,75 +268,67 @@ function initGuest(code, playerName) {
       if (joinRetryTimer) { clearInterval(joinRetryTimer); joinRetryTimer = null; }
     };
 
+    NET.onJoinAck = () => {
+      cleanupRetry();
+      if (!settled) { settled = true; resolve(hc); }
+    };
+    NET.onJoinDenied = reason => {
+      cleanupRetry();
+      if (!settled) { settled = true; reject(new Error(reason || "Join denied")); }
+    };
+
+    const sendJoinHandshake = () => {
+      if (NET.joined) { cleanupRetry(); return; }
+      hc.send({ type: "JOIN_REQ", name: playerName || "Guest" });
+    };
+
+    let tries = 0;
+    joinRetryTimer = setInterval(() => {
+      tries++;
+      if (NET.joined) { cleanupRetry(); return; }
+      if (tries > 10) {
+        cleanupRetry();
+        if (!settled) { settled = true; reject(new Error("Timed out waiting for Host response. Check room code.")); }
+        return;
+      }
+      sendJoinHandshake();
+    }, 1200);
+
+    if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
+    NET.peer = new Peer(NET.myId, { debug: 1, config: ICE_CONFIG });
+
     NET.peer.on("open", id => {
       NET.myId = id;
-      const rtcConn = NET.peer.connect(targetId, { reliable: true });
-      const hc = createHybridConn(targetId, rtcConn);
-      NET.hostConn = hc;
-
       setupSocketRelay(NET.peer, err => {
-        cleanupRetry();
-        if (!settled) { settled = true; reject(err); }
-      });
-
-      const sendJoinHandshake = () => {
-        if (NET.joined) { cleanupRetry(); return; }
-        hc.send({ type: "JOIN_REQ", name: playerName || "Guest" });
-        if (!settled) {
-          settled = true;
-          resolve(hc);
+        if (!NET.httpEnabled) {
+          cleanupRetry();
+          if (!settled) { settled = true; reject(err); }
         }
-      };
+      });
+      sendJoinHandshake();
 
-      // 1) If WebRTC DataChannel opens quickly, send JOIN_REQ immediately
+      const rtcConn = NET.peer.connect(targetId, { reliable: true });
+      hc.rtcConn = rtcConn;
+
       rtcConn.on("open", () => {
         sendJoinHandshake();
       });
-
-      // 2) Send JOIN_REQ over WebSocket relay after 1.2s if WebRTC is still negotiating (Symmetric NAT / CGNAT bypass)
-      setTimeout(() => {
-        if (!NET.joined) {
-          wsSend(targetId, { type: "JOIN_REQ", name: playerName || "Guest" });
-          if (!settled) {
-            settled = true;
-            resolve(hc);
-          }
-        }
-      }, 1200);
-
-      // 3) Retry JOIN_REQ every 2s until JOIN_ACK is received (up to 5 times)
-      let tries = 0;
-      joinRetryTimer = setInterval(() => {
-        tries++;
-        if (NET.joined || tries > 5) {
-          cleanupRetry();
-          return;
-        }
-        hc.send({ type: "JOIN_REQ", name: playerName || "Guest" });
-      }, 2000);
 
       rtcConn.on("data", data => {
         handleNetData(data, hc);
       });
 
       rtcConn.on("close", () => {
-        handlePeerDisconnect("Host");
+        if (!NET.httpEnabled) handlePeerDisconnect("Host");
       });
 
       rtcConn.on("error", err => {
-        console.warn("WebRTC DataChannel error (using WebSocket fallback):", err);
+        console.warn("WebRTC DataChannel warning:", err);
       });
     });
 
     NET.peer.on("error", err => {
-      console.error("PeerJS Guest Error:", err);
-      if (err.type === "peer-unavailable") {
-        cleanupRetry();
-        if (!settled) { settled = true; reject(err); }
-      } else if (!settled) {
-        settled = true;
-        reject(err);
-      }
+      console.warn("PeerJS Guest warning:", err);
     });
   });
 }
@@ -328,6 +404,11 @@ function hideNetworkBanner() {
 
 // Message routing
 function handleNetData(msg, fromConn) {
+  if (!msg || typeof msg !== "object") return;
+  if (msg._mid) {
+    if (NET.seenMsgs.has(msg._mid)) return;
+    NET.seenMsgs.add(msg._mid);
+  }
   switch (msg.type) {
     case "JOIN_REQ": {
       if (!NET.isHost) return;
@@ -364,13 +445,31 @@ function handleNetData(msg, fromConn) {
       if (Array.isArray(msg.rows)) S.rows = msg.rows;
       if (typeof msg.n === "number") S.n = msg.n;
       hideNetworkBanner();
+      if (NET.onJoinAck) {
+        const fn = NET.onJoinAck;
+        NET.onJoinAck = null;
+        fn();
+      }
       if (NET.onLobbyUpdate) NET.onLobbyUpdate();
+      break;
+    }
+    case "JOIN_DENIED": {
+      if (NET.onJoinDenied) {
+        const fn = NET.onJoinDenied;
+        NET.onJoinDenied = null;
+        fn(msg.reason);
+      }
       break;
     }
     case "LOBBY_STATE": {
       NET.joined = true;
       if (Array.isArray(msg.rows)) S.rows = msg.rows;
       if (typeof msg.n === "number") S.n = msg.n;
+      if (NET.onJoinAck) {
+        const fn = NET.onJoinAck;
+        NET.onJoinAck = null;
+        fn();
+      }
       if (NET.onLobbyUpdate) NET.onLobbyUpdate();
       break;
     }
@@ -556,9 +655,16 @@ function handleRemoteAction(action, playerIdx) {
 // Broadcast helper for host
 function broadcast(msg) {
   if (!NET.isHost) return;
+  if (msg && typeof msg === "object" && !msg._mid) {
+    msg._mid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
   NET.connections.forEach(conn => {
-    if (conn.open) conn.send(msg);
+    if (conn.rtcConn && conn.rtcConn.open) {
+      try { conn.rtcConn.send(msg); } catch (e) {}
+    }
+    wsSend(conn.peer, msg);
   });
+  httpSend("*", msg);
 }
 
 function broadcastLobby() {
