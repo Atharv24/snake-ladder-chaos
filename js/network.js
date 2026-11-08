@@ -10,13 +10,34 @@ var NET = {
   myId: null,
   roomCode: null,
   myPlayerIndex: 0,
-  connections: [],     // Host: array of DataConnections to guests
-  hostConn: null,      // Guest: single DataConnection to host
+  joined: false,
+  connections: [],     // Host: array of hybrid connections to guests
+  peerMap: {},         // Host: peerId -> hybrid connection
+  hostConn: null,      // Guest: single hybrid connection to host
   chatHistory: [],
   onLobbyUpdate: null,
   onAction: null,
   disconnectTimer: null,
   reconnecting: false,
+};
+
+// STUN + TURN servers so peers behind Symmetric NAT / CGNAT / mobile hotspots can connect
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+        "turns:openrelay.metered.ca:443?transport=tcp"
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    }
+  ]
 };
 
 // Generates a random readable 5-character room code (e.g. "CHAOS", "VIPER")
@@ -32,6 +53,79 @@ function fullPeerId(code) {
   return "snc-" + code.toLowerCase();
 }
 
+// Send a packet over PeerJS's already-open WebSocket signaling channel (100% CGNAT/firewall-proof fallback)
+function wsSend(dstPeerId, data) {
+  if (!NET.peer) return false;
+  const sock = NET.peer.socket || NET.peer._socket;
+  if (!sock || typeof sock.send !== "function") return false;
+  try {
+    sock.send({
+      type: "CANDIDATE",
+      dst: dstPeerId,
+      payload: {
+        connectionId: "snc_ws",
+        data: data
+      }
+    });
+    return true;
+  } catch (e) {
+    console.warn("wsSend error:", e);
+    return false;
+  }
+}
+
+// Create a hybrid connection that uses WebRTC DataChannel when open and falls back to PeerJS WebSocket relay
+function createHybridConn(peerId, rtcConn) {
+  const hc = {
+    peer: peerId,
+    rtcConn: rtcConn || null,
+    open: true,
+    playerIndex: null,
+    send(msg) {
+      if (this.rtcConn && this.rtcConn.open) {
+        try {
+          this.rtcConn.send(msg);
+          return;
+        } catch (e) {}
+      }
+      wsSend(this.peer, msg);
+    }
+  };
+  return hc;
+}
+
+// Listen on PeerJS's signaling WebSocket for fallback relay packets ("snc_ws") and EXPIRE/LEAVE events
+function setupSocketRelay(peer, onInvalidRoom) {
+  const sock = peer.socket || peer._socket;
+  if (!sock || sock._sncHooked) return;
+  sock._sncHooked = true;
+
+  sock.on("message", raw => {
+    if (!raw) return;
+    // If the target room peerId doesn't exist on 0.peerjs.com, server sends EXPIRE
+    if (raw.type === "EXPIRE" && onInvalidRoom) {
+      onInvalidRoom(new Error("Room not found or expired"));
+      return;
+    }
+    if (raw.type === "CANDIDATE" && raw.payload && raw.payload.connectionId === "snc_ws" && raw.payload.data) {
+      const srcPeerId = raw.src;
+      const msg = raw.payload.data;
+      if (NET.isHost) {
+        let hc = NET.peerMap[srcPeerId];
+        if (!hc) {
+          hc = createHybridConn(srcPeerId, null);
+          NET.peerMap[srcPeerId] = hc;
+        }
+        hc.open = true;
+        handleNetData(msg, hc);
+      } else if (NET.hostConn) {
+        NET.hostConn.open = true;
+        handleNetData(msg, NET.hostConn);
+      }
+    }
+  });
+}
+
 // Initialize as Host
 function initHost(customCode) {
   return new Promise((resolve, reject) => {
@@ -41,13 +135,16 @@ function initHost(customCode) {
     NET.isHost = true;
     NET.active = true;
     NET.myPlayerIndex = 0;
+    NET.joined = true;
     NET.connections = [];
+    NET.peerMap = {};
 
     if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
-    NET.peer = new Peer(pid, { debug: 1 });
+    NET.peer = new Peer(pid, { debug: 1, config: ICE_CONFIG });
 
     NET.peer.on("open", id => {
       NET.myId = id;
+      setupSocketRelay(NET.peer);
       resolve(NET.roomCode);
     });
 
@@ -75,50 +172,110 @@ function initGuest(code, playerName) {
     const targetId = fullPeerId(NET.roomCode);
     NET.isHost = false;
     NET.active = true;
+    NET.joined = false;
 
     if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
-    NET.peer = new Peer(null, { debug: 1 });
+    NET.peer = new Peer(null, { debug: 1, config: ICE_CONFIG });
+
+    let settled = false;
+    let joinRetryTimer = null;
+
+    const cleanupRetry = () => {
+      if (joinRetryTimer) { clearInterval(joinRetryTimer); joinRetryTimer = null; }
+    };
 
     NET.peer.on("open", id => {
       NET.myId = id;
-      const conn = NET.peer.connect(targetId, { reliable: true });
-      NET.hostConn = conn;
+      const rtcConn = NET.peer.connect(targetId, { reliable: true });
+      const hc = createHybridConn(targetId, rtcConn);
+      NET.hostConn = hc;
 
-      conn.on("open", () => {
-        // Handshake
-        conn.send({ type: "JOIN_REQ", name: playerName || "Guest" });
-        resolve(conn);
+      setupSocketRelay(NET.peer, err => {
+        cleanupRetry();
+        if (!settled) { settled = true; reject(err); }
       });
 
-      conn.on("data", data => {
-        handleNetData(data, conn);
+      const sendJoinHandshake = () => {
+        if (NET.joined) { cleanupRetry(); return; }
+        hc.send({ type: "JOIN_REQ", name: playerName || "Guest" });
+        if (!settled) {
+          settled = true;
+          resolve(hc);
+        }
+      };
+
+      // 1) If WebRTC DataChannel opens quickly, send JOIN_REQ immediately
+      rtcConn.on("open", () => {
+        sendJoinHandshake();
       });
 
-      conn.on("close", () => {
+      // 2) Send JOIN_REQ over WebSocket relay after 1.2s if WebRTC is still negotiating (Symmetric NAT / CGNAT bypass)
+      setTimeout(() => {
+        if (!NET.joined) {
+          wsSend(targetId, { type: "JOIN_REQ", name: playerName || "Guest" });
+          if (!settled) {
+            settled = true;
+            resolve(hc);
+          }
+        }
+      }, 1200);
+
+      // 3) Retry JOIN_REQ every 2s until JOIN_ACK is received (up to 5 times)
+      let tries = 0;
+      joinRetryTimer = setInterval(() => {
+        tries++;
+        if (NET.joined || tries > 5) {
+          cleanupRetry();
+          return;
+        }
+        hc.send({ type: "JOIN_REQ", name: playerName || "Guest" });
+      }, 2000);
+
+      rtcConn.on("data", data => {
+        handleNetData(data, hc);
+      });
+
+      rtcConn.on("close", () => {
         handlePeerDisconnect("Host");
       });
 
-      conn.on("error", err => {
-        console.error("Host connection error:", err);
-        reject(err);
+      rtcConn.on("error", err => {
+        console.warn("WebRTC DataChannel error (using WebSocket fallback):", err);
       });
     });
 
     NET.peer.on("error", err => {
       console.error("PeerJS Guest Error:", err);
-      reject(err);
+      if (err.type === "peer-unavailable") {
+        cleanupRetry();
+        if (!settled) { settled = true; reject(err); }
+      } else if (!settled) {
+        settled = true;
+        reject(err);
+      }
     });
   });
 }
 
-// Host handles incoming guest connections
-function handleIncomingConnection(conn) {
-  conn.on("data", data => handleNetData(data, conn));
-  conn.on("close", () => {
-    const idx = NET.connections.indexOf(conn);
+// Host handles incoming guest WebRTC connections
+function handleIncomingConnection(rtcConn) {
+  const peerId = rtcConn.peer;
+  let hc = NET.peerMap[peerId];
+  if (!hc) {
+    hc = createHybridConn(peerId, rtcConn);
+    NET.peerMap[peerId] = hc;
+  } else {
+    hc.rtcConn = rtcConn;
+  }
+  hc.open = true;
+
+  rtcConn.on("data", data => handleNetData(data, hc));
+  rtcConn.on("close", () => {
+    const idx = NET.connections.indexOf(hc);
     if (idx !== -1) {
       NET.connections.splice(idx, 1);
-      handlePlayerLeave(conn.playerIndex);
+      delete NET.peerMap[peerId];
+      handlePlayerLeave(hc.playerIndex);
     }
   });
 }
@@ -175,6 +332,11 @@ function handleNetData(msg, fromConn) {
     case "JOIN_REQ": {
       if (!NET.isHost) return;
       initRows();
+      // Idempotency: if this peer already joined, re-send their JOIN_ACK without creating a duplicate slot
+      if (fromConn.playerIndex != null) {
+        fromConn.send({ type: "JOIN_ACK", yourIndex: fromConn.playerIndex, rows: S.rows, n: S.n, roomCode: NET.roomCode });
+        return;
+      }
       if (S.n >= CONFIG.MAX_PLAYERS || (G && G.turnNo > 0)) {
         fromConn.send({ type: "JOIN_DENIED", reason: "Room is full or game already started." });
         return;
@@ -182,7 +344,9 @@ function handleNetData(msg, fromConn) {
       // Allocate next open player index
       const pIdx = S.n++;
       fromConn.playerIndex = pIdx;
-      NET.connections.push(fromConn);
+      if (!NET.connections.includes(fromConn)) {
+        NET.connections.push(fromConn);
+      }
       if (!S.rows[pIdx]) {
         S.rows[pIdx] = { name: msg.name || `Player ${pIdx + 1}`, cls: "", locked: false };
       } else {
@@ -194,6 +358,7 @@ function handleNetData(msg, fromConn) {
       break;
     }
     case "JOIN_ACK": {
+      NET.joined = true;
       NET.myPlayerIndex = msg.yourIndex;
       NET.roomCode = msg.roomCode;
       if (Array.isArray(msg.rows)) S.rows = msg.rows;
@@ -203,6 +368,7 @@ function handleNetData(msg, fromConn) {
       break;
     }
     case "LOBBY_STATE": {
+      NET.joined = true;
       if (Array.isArray(msg.rows)) S.rows = msg.rows;
       if (typeof msg.n === "number") S.n = msg.n;
       if (NET.onLobbyUpdate) NET.onLobbyUpdate();
