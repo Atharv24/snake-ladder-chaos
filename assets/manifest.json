@@ -1,0 +1,99 @@
+{
+  "tiles": {
+    "dark": [
+      "tile_dark.svg"
+    ],
+    "light": [
+      "tile_light.svg"
+    ],
+    "shadow": "tile_shadow.svg"
+  },
+  "heads": [
+    {
+      "file": "snake_head_2.svg",
+      "face": "L",
+      "color": "#e4b632",
+      "body": "snake_body_2.svg"
+    },
+    {
+      "file": "snake_head_3.svg",
+      "face": "L",
+      "color": "#d4df5b",
+      "body": "snake_body_3.svg"
+    },
+    {
+      "file": "snake_head_4.svg",
+      "face": "R",
+      "color": "#ce2741",
+      "body": "snake_body_4.svg"
+    },
+    {
+      "file": "snake_head_5.svg",
+      "face": "R",
+      "color": "#cf9ac5",
+      "body": "snake_body_5.svg"
+    },
+    {
+      "file": "snake_head_6.svg",
+      "face": "L",
+      "color": "#16c5d8",
+      "body": "snake_body_6.svg"
+    },
+    {
+      "file": "snake_head_7.svg",
+      "face": "L",
+      "color": "#6d7c19",
+      "body": "snake_body_7.svg"
+    },
+    {
+      "file": "snake_head_8.svg",
+      "face": "L",
+      "color": "#c15017",
+      "body": "snake_body_8.svg",
+      "short": true
+    },
+    {
+      "file": "snake_head_9.svg",
+      "face": "L",
+      "color": "#b71e13",
+      "body": "snake_body_9.svg"
+    }
+  ],
+  "cobra": {
+    "file": "snake_head_cobra.svg",
+    "face": "R",
+    "color": "#f4da44",
+    "body": "snake_body_cobra.svg"
+  },
+  "digits": [
+    "no_0_B.svg",
+    "no_1_B.svg",
+    "no_2_B.svg",
+    "no_3_B.svg",
+    "no_4_B.svg",
+    "no_5_B.svg",
+    "no_6_B.svg",
+    "no_7_B.svg",
+    "no_8_B.svg",
+    "no_9_B.svg"
+  ],
+  "ladders": {
+    "straight": "ladder_straight.svg",
+    "slanted": "ladder_slanted.svg"
+  },
+  "cats": [
+    "cat_1.svg",
+    "cat_2.svg",
+    "cat_3.svg",
+    "cat_4.svg",
+    "cat_5.svg",
+    "cat_6.svg"
+  ],
+  "items": {
+    "stick": "item_stick.svg",
+    "brick": "item_toy_brick.svg",
+    "drink": "item_energy_drink.svg",
+    "stone": "item_stone.svg"
+  },
+  "container": "container_red.svg"
+}

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Snakes, Ladders and Chaos!</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Everything lives on a fixed 1920x1080 "stage" that main.js scales to fit the window. -->
+  <div id="stage">
+    <div id="game">                              <!-- hidden until Start is pressed -->
+      <div id="boxes"></div>                     <!-- the red container behind the board (main.js draws them from BOXES) -->
+      <div id="panels"></div>                    <!-- left: player panels (render.js buildPanels) -->
+      <div id="board"></div>                     <!-- centre: the board SVG (render.js buildBoard) -->
+      <div id="topbtns"></div>                   <!-- top right: round icon buttons (main.js) -->
+      <div id="logpanel">                        <!-- right: board log + prompt box -->
+        <img src="assets/panel_boardlog.svg" alt="">
+        <div id="ptitle">Board log</div>
+        <button id="expand" title="Expand" onclick="expandPanel()"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 4h6M4 4v6M4 4l6 6M20 20h-6M20 20v-6M20 20l-6-6M20 4h-6M20 4v6M20 4l-6 6M4 20h6M4 20v-6M4 20l6-6" fill="none" stroke="#2f2504" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+        <div id="log" class="view"></div>             <!-- Board log tab (always collecting events) -->
+        <div id="rulebook" class="view"></div>        <!-- Rulebook tab -->
+        <div id="settings" class="view"></div>        <!-- Settings tab (sound volume) -->
+        <div id="about" class="view"></div>           <!-- About tab -->
+        <div id="chatView" class="view" style="display:none"></div>  <!-- Real-time chat -->
+        <div id="chatInputBar" style="display:none">
+          <input type="text" id="chatInput" placeholder="Message..." maxlength="100" onkeydown="if(event.key==='Enter')chatSendPressed()">
+          <button class="cbtn" id="chatSendBtn" onclick="chatSendPressed()"><span>Send</span></button>
+        </div>
+        <div id="soon" class="view">Coming soon.</div> <!-- Fallback -->
+        <div id="prompt"><div id="ptxt"></div><div id="btns"></div></div>
+      </div>
+      <div id="tray">                            <!-- bottom right: the rolling board with dice and ROLL button -->
+        <img class="bg" src="assets/panel_rollingboard.svg" alt="">
+        <div id="dice"></div>
+        <button id="moveBtn" class="cbtn alt"><span>Move for me</span></button>   <!-- helper button on the rolling board: "Move for me" / "Just roll" (hidden unless a move is pending) -->
+        <button id="rollBtn" onclick="rollPressed()"><img class="rsh" src="assets/button_roll_shadow.svg" alt=""><img class="rface" src="assets/button_roll.svg" alt=""></button>
+      </div>
+    </div>
+    <div id="fly"></div>                         <!-- layer for thrown / sliding items -->
+    <div id="setup"></div>                       <!-- start screen -->
+    <div id="modal" onclick="if(event.target===this)this.style.display='none'"></div>                       <!-- pop-up windows (rulebook etc.) -->
+  </div>
+  <!-- The code, in loading order (each file only uses things from the files above it). -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/art.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/network.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/rules.js"></script>
+  <script src="js/rulebook.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

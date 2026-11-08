@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108.7 49.04">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #ff7529;
+      }
+
+      .cls-2 {
+        fill: #fff;
+      }
+
+      .cls-3 {
+        fill: #e2330a;
+      }
+
+      .cls-4 {
+        fill: #841509;
+      }
+
+      .cls-5 {
+        fill: #ffa42c;
+      }
+    </style>
+  </defs>
+  <g>
+    <rect class="cls-3" y="11.51" width="108.7" height="37.53" rx="3" ry="3"/>
+    <rect class="cls-4" x="6.1" y="23.72" width="8.09" height="25.32"/>
+    <rect class="cls-4" x="14.93" y="23.72" width="1.11" height="25.32"/>
+    <rect class="cls-4" x="17.88" y="23.72" width="2.79" height="25.32"/>
+    <rect class="cls-4" x="21.4" y="23.72" width="2.79" height="25.32"/>
+    <rect class="cls-5" x="86.74" y="23.72" width="2.94" height="25.32"/>
+    <rect class="cls-5" x="93.14" y="23.72" width="1.61" height="25.32"/>
+    <rect class="cls-5" x="97.31" y="23.72" width="2.03" height="25.32"/>
+    <rect class="cls-5" x="100.88" y="23.72" width="1.01" height="25.32"/>
+    <rect class="cls-5" x="0" width="108.7" height="37.53" rx="3" ry="3"/>
+    <path class="cls-1" d="M99.21,35.96l-87.95.03c-4.57,0-8.28-1.28-8.28-2.86L0,2.86C0,1.28,3.71,0,8.28,0h92.14c4.57,0,8.28,1.28,8.28,2.86l-1.21,30.24c0,1.58-3.71,2.86-8.28,2.86Z"/>
+  </g>
+  <g>
+    <g>
+      <path class="cls-3" d="M9.5,31.51h-2.09V6.48h18.77v4.17h4.17v4.17h-4.17v-4.17h-14.6v4.17h14.6v4.17h-2.09v4.17h4.17v4.17h-4.17v-4.17h-4.17v-4.17h-8.34v12.52h-2.09ZM30.36,31.51h-2.09v-4.17h4.17v4.17h-2.09Z"/>
+      <path class="cls-3" d="M38.71,27.34h-4.17V10.65h4.17v16.69ZM55.4,10.65h-16.69v-4.17h16.69v4.17ZM53.31,31.51h-14.6v-4.17h16.69v4.17h-2.09ZM55.4,27.34V10.65h4.17v16.69h-4.17Z"/>
+      <path class="cls-3" d="M78.34,31.51h-16.69V6.48h4.17v20.86h14.6v4.17h-2.09Z"/>
+      <path class="cls-3" d="M99.2,31.51h-16.69V6.48h4.17v20.86h14.6v4.17h-2.09Z"/>
+    </g>
+    <g>
+      <path class="cls-2" d="M9.5,29.51h-2.09V4.48h18.77v4.17h4.17v4.17h-4.17v-4.17h-14.6v4.17h14.6v4.17h-2.09v4.17h4.17v4.17h-4.17v-4.17h-4.17v-4.17h-8.34v12.52h-2.09ZM30.36,29.51h-2.09v-4.17h4.17v4.17h-2.09Z"/>
+      <path class="cls-2" d="M38.71,25.34h-4.17V8.65h4.17v16.69ZM55.4,8.65h-16.69v-4.17h16.69v4.17ZM53.31,29.51h-14.6v-4.17h16.69v4.17h-2.09ZM55.4,25.34V8.65h4.17v16.69h-4.17Z"/>
+      <path class="cls-2" d="M78.34,29.51h-16.69V4.48h4.17v20.86h14.6v4.17h-2.09Z"/>
+      <path class="cls-2" d="M99.2,29.51h-16.69V4.48h4.17v20.86h14.6v4.17h-2.09Z"/>
+    </g>
+  </g>
+</svg>

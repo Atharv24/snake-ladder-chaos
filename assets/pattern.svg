@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- pattern.svg: the repeating background tile. Keep it SQUARE. It is drawn on top of the blue background colour and repeated
+       left-to-right and top-to-bottom behind everything else. 1 viewBox unit = 1 pixel on the 1920x1080 stage, so a 256 x 256 tile
+       repeats 7.5 times across. Replace this empty placeholder with the real design (any square viewBox size works). -->
+</svg>

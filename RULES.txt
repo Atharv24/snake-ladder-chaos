@@ -1,0 +1,117 @@
+SNAKES, LADDERS AND CHAOS!  -  RULES AND CLASS ABILITIES
+=========================================================
+
+THE BASICS
+----------
+* 2 to 6 players. Every player picks a different class. (If two players pick the same class they roll a die; the higher roll keeps it
+  and the other picks again.)
+* The board has 100 squares, numbered in a zig-zag (1 bottom-left, 100 top-left). Everyone starts on square 1.
+* Every game has a random board: 9 snakes (one of them is a long cobra snake) and 9 ladders.
+* Landing on the BOTTOM of a ladder takes you up to its top. Landing on a snake's HEAD takes you down to its tail.
+* A turn is: (1) use items if you want, (2) roll, (3) drag your pawn to the glowing target square. (Press "Move for me" or Space instead
+  of dragging if you prefer.) The roll can be thrown by grabbing the die, or with the ROLL button / Space bar.
+* You win by landing on square 100 EXACTLY. If your roll would take you past 100 you stay where you are
+  (the Gambler is the one exception, see below).
+* Rolling a 6 gives you another turn - EXCEPT where a class says otherwise (see the table below).
+* Turn order: the Snake Charmer always goes first, the owner of the Cat always goes last, everyone else goes in the order they were
+  added on the start screen.
+* BUFF and DEBUFF counters (under each player's panel) show a bonus (+) or penalty (-) that is added to the player's NEXT roll and then
+  cleared. Bonuses and penalties add together. A move can never be less than 0 squares (it cannot push you backwards).
+* Anyone the game moves (pushed, pulled, nudged, knocked down, slid down a snake, climbed a ladder) takes snakes and ladders at the
+  square they land on, just like a normal move - except where a class says otherwise.
+
+BONUS ROLL ON A 6 - WHO GETS IT
+-------------------------------
+  Bully ................ yes (on a 6)
+  Struggler ............ yes (on a 6)
+  Oracle ............... yes (on a 6, whether the call was right or wrong)
+  Cat owner ............ yes for his own roll; the CAT also gets another roll whenever it rolls a 6
+  Gambler .............. NO bonus for a single 6. He only gets another turn when BOTH dice are 6 (double 6s)
+  Snake Charmer ........ NEVER gets a bonus roll, not even on a 6
+
+THE CLASSES
+-----------
+
+BULLY
+* Before rolling: if another player is within 6 squares ahead of him, he chooses PUSH or PULL. If nobody is within 6 squares ahead
+  he is not asked (he cannot land on anybody) and just rolls.
+* Passing over a player (that player's square is between where he started and where he finishes): for each one he chooses to nudge them
+  forward 1 or back 1 square (they cannot go below square 1).
+* Landing exactly on another player: he rolls a die and PUSHES that player forward (or PULLS them back) by that many squares, in the
+  direction he chose before rolling. If a push would carry them past 100, nothing happens. If two players share the square he picks one.
+* His ability triggers where he LANDS with his own roll, before any snake or ladder. If a snake swallows him and he ends up on a
+  tail where another player is standing, the ability does NOT go off.
+* A 6 gives him another turn.
+
+GAMBLER
+* Rolls TWO dice and moves the total (plus/minus any buff/debuff).
+* If either die shows a 1, the gamble backfires: he goes BACK by the other die (never below square 1) and his turn ends.
+  Double 1s ("snake eyes"): he stays where he is.
+* NO bonus roll for a normal 6. He only gets another turn on double 6s.
+* If the total would take him past 100 he BOUNCES BACK instead of staying put: he ends on (200 - target). For example from square 95 a
+  total of 12 would be 107, so he lands on 93.
+* THE FINISH: from square 97, 98 or 99 (3 or fewer squares from 100) the total no longer counts. He needs EITHER die to show the exact
+  number he needs (e.g. on 98 he needs a 2 on either die; on 99 he needs a 1, so a 1 on either die WINS there). If he rolls it, he wins.
+  If not, he stays where he is - except that a 1 still sends him back by the other die (double 1s: he stays). Double 6s still give another turn.
+  (From 96 and below the normal total-and-bounce rule applies, so he can finish with an exact total of 100.)
+
+THE ONE WITH THE CAT (CAT OWNER)
+* His own turn is a plain roll: a 6 gives another turn. He goes LAST in the turn order.
+* After his own turn the CAT takes a turn: he rolls a die for the cat. The cat moves forward that many squares and WRAPS AROUND the
+  board (past 100 it carries on from square 1; landing on exactly 100 sends it to square 1). The cat rolls again if it rolls a 6.
+* The cat ignores snakes, ladders and items, and cannot win the game. Items cannot be used on the cat and the cat cannot be a target.
+* Players the cat JUMPS OVER (squares between where it started and where it lands) are INFATUATED: -1 on their next roll.
+* A player the cat LANDS ON is KNOCKED DOWN 10 squares (to square 1 if they were on 10 or below). They slide down a snake or climb a ladder
+  if they land on one. For each player actually knocked down the owner gets +3 on his next roll (a Struggler who dodges does not count).
+  If that roll overshoots 100 the bonus is lost.
+* Click the cat (any player, any time) to change its picture. It also changes whenever the cat moves to a new square.
+
+STRUGGLER
+* Plain roll; a 6 gives another turn.
+* Every time something forced happens to him he rolls a die: EVEN = he dodges it, ODD = it hits him. This applies to snakes (even = he
+  wriggles free and stays on the head square), being pushed/pulled/nudged by the Bully, being knocked down by the cat, and being
+  infatuated by the cat.
+* LADDERS work the other way round: before climbing he picks TWO failure numbers (1-6), then rolls. If the roll is one of his failure
+  numbers he does NOT climb and stays on the bottom square; any other number and he climbs.
+* Items work on him normally and NEVER trigger his dodge ability.
+
+ORACLE
+* Before rolling he calls a number from 1 to 6.
+* If the roll matches his call he rolls a 3-sided bonus die (1-3) and adds it to his move, and snakes cannot bite him on that move
+  (ladders still work). A wrong call costs nothing - he just moves normally.
+* If the boosted move would carry him past 100 he stays put.
+* A 6 gives another turn (right call or wrong).
+
+SNAKE CHARMER
+* Always goes FIRST in every round.
+* Before rolling he may drag the head of one snake that is on his row, or on the row directly above or below him, to another FREE square on
+  that same row. The square must still be above the snake's tail and must not already be used by a snake or a ladder (head, tail, bottom or top). The snake's tail stays
+  put; the body follows the head. Players already standing on the new head square are safe - only players who arrive there later get bitten.
+* After moving a head he must wait one turn before he can move another ("recharging"). He can always choose "Just roll" instead.
+* NO bonus roll on a 6 - he never gets another turn.
+
+ITEMS
+-----
+* The game starts with 6 random items lying on empty squares. A new item appears on a random empty square every 3rd turn of the game.
+  Items never spawn on square 1 or 100, on a snake head or the bottom of a ladder, or on a square that already has an item, a pawn or the cat.
+  If an item and a snake head share a tile, the player who lands there picks the item up before the snake bites. The 6 starting items have a tiny bias
+  towards the bottom half of the board; items that appear later have a tiny bias towards squares near the player who is furthest from 100.
+* Step on an item (any way a pawn ends up on its square) to pick it up. Each player holds up to 3 items in the slots on their panel.
+  With full hands you may swap one of your items for the one on the ground, or leave it.
+* Items can only be used BEFORE rolling. During your turn your items pulse with a lime glow: click one to use it, or press Roll / Space to
+  go on without using any. You can use several items, one after another. When an item asks for a target you can press Cancel / Space to
+  back out without spending it.
+* Items work on every class, including the Struggler (they never trigger his dodge roll). Nothing can be used on the cat or against it.
+
+  STICK ......... Nudge ANY snake's head 1 square left or right (onto a free square on its row, still above its tail).
+  TOY BRICK ..... Place it on any free square in your own row or the row above/below (not under a pawn, the cat, or another item).
+                  The next player to step on it - including you - gets -3 on their next roll, and the brick is used up. Placed bricks glow
+                  red so they are easy to tell from bricks lying around to be picked up. The cat does not trigger bricks.
+  ENERGY DRINK .. +3 on your next roll. Your pawn grows a little for the rest of the turn. (It cannot be given to the cat.)
+  STONE ......... Throw it at any other player: -1 on their next roll. (It cannot be thrown at the cat.)
+
+HELPFUL CONTROLS
+----------------
+* Space bar: roll the dice / press the helper button on the rolling board ("Move for me", "Just roll", "Roll", "Cancel").
+* Settings tab: sound-effects volume (10 steps; click step 1 again to mute).
+* Rulebook tab: a short version of these rules. Board log: everything that happens, with a bit of flavour text.
