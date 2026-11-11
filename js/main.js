@@ -166,17 +166,21 @@ function leaveOnlineLobby() {
       } else if (NET.hostConn) {
         const bye = { _mid: makeMsgId(), type: "BYE", playerIndex: NET.myPlayerIndex };
         if (NET.hostConn.isRtcOpen()) NET.hostConn.rtcConn.send(bye);
-        else if (NET.httpEnabled && NET.roomCode && NET.myId) {
-          fetch("/api/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ room: NET.roomCode, src: NET.myId, dst: NET.hostConn.peer, data: bye })
-          }).catch(() => {});
+        else {
+          if (typeof mqttSend === "function") mqttSend(NET.hostConn.peer, bye, NET.hostConn.mqttIdx, true);
+          if (NET.httpEnabled && NET.roomCode && NET.myId) {
+            fetch("/api/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ room: NET.roomCode, src: NET.myId, dst: NET.hostConn.peer, data: bye })
+            }).catch(() => {});
+          }
         }
       }
     } catch (e) {}
   }
   if (typeof stopServerRelay === "function") stopServerRelay();
+  if (typeof stopCloudRelay === "function") stopCloudRelay();
   if (NET.peer) {
     try { NET.peer.destroy(); } catch (e) {}
     NET.peer = null;

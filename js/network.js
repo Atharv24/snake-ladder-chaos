@@ -38,11 +38,20 @@ var NET = {
   httpPollAbort: null,
   httpOutbox: [],
   httpFlushing: false,
+  mqttSockets: [],
+  mqttOutbox: [],
+  mqttPingTimer: null,
   stateSeq: 0,
   seenMsgs: new Set(),
   earlyQueue: [],      // Guest: buffers in-game packets arriving slightly before GAME_START
   lastDragSentAt: 0,
 };
+
+// Public Cloud WSS MQTT brokers (zero-backend global room relay for GitHub Pages & Symmetric NAT)
+const CLOUD_BROKERS = [
+  { url: "wss://public.cloud.shiftr.io", user: "public", pass: "public" },   // Standard HTTPS port 443 (pierces strict firewalls)
+  { url: "wss://broker.emqx.io:8084/mqtt", user: null, pass: null }          // High-capacity global EMQX cluster backup
+];
 
 const ICE_CONFIG = {
   iceServers: [
@@ -103,16 +112,12 @@ function wsSend(dstPeerId, data) {
   return false;
 }
 
-function setupSocketRelay(peer, onInvalidRoom) {
+function setupSocketRelay(peer) {
   const sock = peer && (peer.socket || peer._socket);
   if (!sock) return;
 
   const onRawMsg = raw => {
     if (!raw || typeof raw !== "object") return;
-    if (raw.type === "EXPIRE" && onInvalidRoom) {
-      onInvalidRoom(new Error("Room code not found or expired."));
-      return;
-    }
     if (raw.payload && raw.payload._sncRelay && raw.payload.data) {
       const srcPeerId = raw.payload.src || raw.src;
       deliverRelayPacket(srcPeerId, raw.payload.data);
@@ -131,7 +136,7 @@ function setupSocketRelay(peer, onInvalidRoom) {
   }
 }
 
-function deliverRelayPacket(srcPeerId, msg) {
+function deliverRelayPacket(srcPeerId, msg, mqttBrokerIdx) {
   if (!msg) return;
   if (NET.isHost && srcPeerId) {
     let hc = NET.peerMap[srcPeerId];
@@ -139,12 +144,227 @@ function deliverRelayPacket(srcPeerId, msg) {
       hc = createHybridConn(srcPeerId, null);
       NET.peerMap[srcPeerId] = hc;
     }
+    if (mqttBrokerIdx !== undefined) hc.mqttIdx = mqttBrokerIdx;
     hc.open = true;
     handleNetData(msg, hc);
   } else if (!NET.isHost && NET.hostConn) {
+    if (mqttBrokerIdx !== undefined) NET.hostConn.mqttIdx = mqttBrokerIdx;
     NET.hostConn.open = true;
     handleNetData(msg, NET.hostConn);
   }
+}
+
+// ---- Zero-Dependency MQTT 3.1.1 over WSS Cloud Relay (works on GitHub Pages & strict NATs) ----
+const MQTT_ENC = new TextEncoder();
+const MQTT_DEC = new TextDecoder();
+
+function mqttVarLen(n) {
+  const out = [];
+  do {
+    let b = n & 127;
+    n >>>= 7;
+    if (n > 0) b |= 128;
+    out.push(b);
+  } while (n > 0);
+  return out;
+}
+
+function mqttStr(s) {
+  const b = MQTT_ENC.encode(s);
+  return [(b.length >> 8) & 255, b.length & 255, ...b];
+}
+
+function mqttPkt(type, body) {
+  return new Uint8Array([type, ...mqttVarLen(body.length), ...body]);
+}
+
+function mqttConnectPkt(cid, user, pass) {
+  let flags = 0x02;   // Clean session
+  const pl = [...mqttStr(cid)];
+  if (user) { flags |= 0x80; pl.push(...mqttStr(user)); }
+  if (pass) { flags |= 0x40; pl.push(...mqttStr(pass)); }
+  return mqttPkt(0x10, [0, 4, 77, 81, 84, 84, 4, flags, 0, 120, ...pl]);   // Keep-Alive = 120s
+}
+
+function mqttSubPkt(pktId, topics) {
+  const b = [(pktId >> 8) & 255, pktId & 255];
+  for (const t of topics) b.push(...mqttStr(t), 0);
+  return mqttPkt(0x82, b);
+}
+
+function mqttPubPkt(topic, jsonStr) {
+  const p = MQTT_ENC.encode(jsonStr);
+  const t = mqttStr(topic);
+  const bodyLen = t.length + p.length;
+  const vl = mqttVarLen(bodyLen);
+  const out = new Uint8Array(1 + vl.length + bodyLen);
+  out[0] = 0x30;
+  out.set(vl, 1);
+  out.set(t, 1 + vl.length);
+  out.set(p, 1 + vl.length + t.length);
+  return out;
+}
+
+function mqttParse(buf, onMsg, onConnAck) {
+  let i = 0;
+  while (i < buf.length) {
+    const type = buf[i] & 0xf0;
+    let mul = 1, len = 0, idx = i + 1;
+    while (idx < buf.length) {
+      const d = buf[idx++];
+      len += (d & 127) * mul;
+      if ((d & 128) === 0) break;
+      mul *= 128;
+    }
+    if (idx + len > buf.length) break;
+    if (type === 0x20 && onConnAck) {
+      onConnAck(buf[idx + 1]);
+    } else if (type === 0x30) {
+      const tLen = (buf[idx] << 8) | buf[idx + 1];
+      const topic = MQTT_DEC.decode(buf.subarray(idx + 2, idx + 2 + tLen));
+      let pStart = idx + 2 + tLen;
+      if (((buf[i] >> 1) & 3) > 0) pStart += 2;
+      const payload = MQTT_DEC.decode(buf.subarray(pStart, idx + len));
+      onMsg(topic, payload);
+    }
+    i = idx + len;
+  }
+}
+
+function mqttIsReady() {
+  return NET.mqttSockets.some(s => s && s.ready && s.ws && s.ws.readyState === 1);
+}
+
+function mqttSend(dstPeerId, data, preferredIdx, allBrokers) {
+  if (!NET.roomCode || !NET.myId || typeof WebSocket === "undefined") return false;
+  const readyList = NET.mqttSockets.filter(s => s && s.ready && s.ws && s.ws.readyState === 1);
+  if (!readyList.length) {
+    if (data && data.type === "DRAG_MOVE") {
+      for (let i = NET.mqttOutbox.length - 1; i >= 0; i--) {
+        if (NET.mqttOutbox[i].dst === (dstPeerId || "*") && NET.mqttOutbox[i].data && NET.mqttOutbox[i].data.type === "DRAG_MOVE") {
+          NET.mqttOutbox.splice(i, 1);
+        }
+      }
+    }
+    NET.mqttOutbox.push({ dst: dstPeerId || "*", data, preferredIdx, allBrokers });
+    if (NET.mqttOutbox.length > 64) NET.mqttOutbox.shift();
+    return true;
+  }
+
+  const topic = (!dstPeerId || dstPeerId === "*")
+    ? `snc-slc-v2/${NET.roomCode}/all`
+    : `snc-slc-v2/${NET.roomCode}/${dstPeerId}`;
+  const pkt = mqttPubPkt(topic, JSON.stringify({ src: NET.myId, dst: dstPeerId || "*", data }));
+
+  if (allBrokers) {
+    readyList.forEach(s => { try { s.ws.send(pkt); } catch (e) {} });
+    return true;
+  }
+
+  const pref = (preferredIdx != null && NET.mqttSockets[preferredIdx] && NET.mqttSockets[preferredIdx].ready && NET.mqttSockets[preferredIdx].ws.readyState === 1)
+    ? NET.mqttSockets[preferredIdx]
+    : readyList[0];
+  try {
+    pref.ws.send(pkt);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function stopCloudRelay() {
+  if (NET.mqttPingTimer) {
+    clearInterval(NET.mqttPingTimer);
+    NET.mqttPingTimer = null;
+  }
+  NET.mqttSockets.forEach(s => {
+    if (!s) return;
+    s.stopped = true;
+    s.ready = false;
+    if (s.reconnTimer) clearTimeout(s.reconnTimer);
+    if (s.ws) { try { s.ws.close(); } catch (e) {} }
+  });
+  NET.mqttSockets = [];
+  NET.mqttOutbox = [];
+}
+
+function startCloudRelay(onAnyBrokerReady) {
+  stopCloudRelay();
+  if (typeof WebSocket === "undefined" || !NET.roomCode || !NET.myId) return;
+
+  const connectSlot = idx => {
+    const cfg = CLOUD_BROKERS[idx];
+    const slot = { idx, ws: null, ready: false, stopped: false, reconnTimer: null };
+    NET.mqttSockets[idx] = slot;
+
+    const openSocket = () => {
+      if (slot.stopped || !NET.active || !NET.roomCode || !NET.myId) return;
+      let ws;
+      try {
+        ws = new WebSocket(cfg.url, "mqtt");
+      } catch (e) {
+        return;
+      }
+      ws.binaryType = "arraybuffer";
+      slot.ws = ws;
+
+      ws.onopen = () => {
+        if (slot.stopped) { try { ws.close(); } catch (e) {} return; }
+        const cid = `snc_${NET.roomCode}_${idx}_${Math.random().toString(36).slice(2, 9)}`;
+        try { ws.send(mqttConnectPkt(cid, cfg.user, cfg.pass)); } catch (e) {}
+      };
+
+      ws.onmessage = ev => {
+        if (slot.stopped || !ev.data) return;
+        mqttParse(
+          new Uint8Array(ev.data),
+          (_topic, payload) => {
+            try {
+              const env = JSON.parse(payload);
+              if (!env || !env.src || env.src === NET.myId || !env.data) return;
+              deliverRelayPacket(env.src, env.data, idx);
+            } catch (e) {}
+          },
+          rc => {
+            if (rc !== 0) return;
+            slot.ready = true;
+            try {
+              ws.send(mqttSubPkt(1, [
+                `snc-slc-v2/${NET.roomCode}/${NET.myId}`,
+                `snc-slc-v2/${NET.roomCode}/all`
+              ]));
+            } catch (e) {}
+            if (NET.mqttOutbox.length) {
+              const queued = NET.mqttOutbox.splice(0);
+              queued.forEach(item => mqttSend(item.dst, item.data, item.preferredIdx, item.allBrokers));
+            }
+            if (onAnyBrokerReady) onAnyBrokerReady(idx);
+          }
+        );
+      };
+
+      ws.onerror = () => {};
+      ws.onclose = () => {
+        slot.ready = false;
+        if (!slot.stopped && NET.active) {
+          slot.reconnTimer = setTimeout(openSocket, 1800);
+        }
+      };
+    };
+
+    openSocket();
+  };
+
+  for (let i = 0; i < CLOUD_BROKERS.length; i++) connectSlot(i);
+
+  NET.mqttPingTimer = setInterval(() => {
+    const ping = new Uint8Array([0xc0, 0x00]);
+    NET.mqttSockets.forEach(s => {
+      if (s && s.ready && s.ws && s.ws.readyState === 1) {
+        try { s.ws.send(ping); } catch (e) {}
+      }
+    });
+  }, 25000);
 }
 
 // Ordered, batched FIFO HTTP sender for serve.py (/api/send) - prevents out-of-order POST races
@@ -181,8 +401,10 @@ async function flushHttpOutbox() {
         NET.httpEnabled = false;
         const unsent = [...batch, ...NET.httpOutbox.splice(0)];
         unsent.forEach(it => {
-          if (it.dst && it.dst !== "*") wsSend(it.dst, it.data);
-          else if (NET.isHost) NET.connections.forEach(c => { if (c.open && !c.isRtcOpen()) wsSend(c.peer, it.data); });
+          if (!mqttSend(it.dst, it.data)) {
+            if (it.dst && it.dst !== "*") wsSend(it.dst, it.data);
+            else if (NET.isHost) NET.connections.forEach(c => { if (c.open && !c.isRtcOpen()) wsSend(c.peer, it.data); });
+          }
         });
         break;
       }
@@ -270,17 +492,18 @@ async function startLongPollLoop(handleBatch) {
 }
 
 // ------------------------------------------------------------------ 2. HYBRID CONNECTION
-// Uses direct WebRTC DataChannel exclusively once open; falls back to SSE/HTTP or PeerJS WS only when needed
+// Uses direct WebRTC DataChannel exclusively once open; falls back to SSE/HTTP, Cloud WSS, or PeerJS WS only when needed
 function createHybridConn(peerId, rtcConn) {
   return {
     peer: peerId,
     rtcConn: rtcConn || null,
+    mqttIdx: undefined,
     open: true,
     playerIndex: null,
     isRtcOpen() {
       return !!(this.rtcConn && this.rtcConn.open);
     },
-    send(msg) {
+    send(msg, opts) {
       if (msg && typeof msg === "object" && !msg._mid && msg.type !== "DRAG_MOVE") {
         msg._mid = makeMsgId();
       }
@@ -291,15 +514,29 @@ function createHybridConn(peerId, rtcConn) {
           return;
         } catch (e) {}
       }
-      // Fallback path for Symmetric NAT / CGNAT or while WebRTC is still shaking hands
+      // Fallback path for Symmetric NAT / CGNAT / static GitHub Pages or while WebRTC is shaking hands
       if (NET.httpEnabled) {
         enqueueHttpSend(this.peer, msg);
-      } else {
+      } else if (!mqttSend(this.peer, msg, this.mqttIdx, opts && opts.allBrokers)) {
         wsSend(this.peer, msg);
       }
     }
   };
 }
+
+// Keep PeerJS signaling & Cloud WSS relays alive across tab switches
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !NET.active) return;
+  if (NET.peer && NET.peer.disconnected && !NET.peer.destroyed) {
+    try { NET.peer.reconnect(); } catch (e) {}
+  }
+  const ping = new Uint8Array([0xc0, 0x00]);
+  NET.mqttSockets.forEach(s => {
+    if (s && s.ready && s.ws && s.ws.readyState === 1) {
+      try { s.ws.send(ping); } catch (e) {}
+    }
+  });
+});
 
 // ------------------------------------------------------------------ 3. HOST & GUEST INIT
 function initHost(customCode) {
@@ -317,15 +554,17 @@ function initHost(customCode) {
     NET.earlyQueue = [];
     NET.stateSeq = 0;
     NET.myId = pid;
-    startServerRelay();
-
-    if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
-    NET.peer = new Peer(pid, { debug: 1, config: ICE_CONFIG });
 
     let settled = false;
     const finishHost = () => {
       if (!settled) { settled = true; resolve(NET.roomCode); }
     };
+
+    startServerRelay();
+    startCloudRelay(() => finishHost());
+
+    if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
+    NET.peer = new Peer(pid, { debug: 0, config: ICE_CONFIG });
 
     NET.peer.on("open", id => {
       NET.myId = id;
@@ -333,24 +572,40 @@ function initHost(customCode) {
       finishHost();
     });
 
+    // Auto-reconnect signaling socket if 0.peerjs.com drops idle/backgrounded host!
+    NET.peer.on("disconnected", () => {
+      if (NET.active && NET.peer && !NET.peer.destroyed) {
+        setTimeout(() => {
+          if (NET.active && NET.peer && NET.peer.disconnected && !NET.peer.destroyed) {
+            try { NET.peer.reconnect(); } catch (e) {}
+          }
+        }, 600);
+      }
+    });
+
     setTimeout(() => {
-      if (NET.httpEnabled) finishHost();
-    }, 1500);
+      if (NET.httpEnabled || mqttIsReady()) finishHost();
+    }, 1200);
 
     NET.peer.on("connection", conn => {
       handleIncomingConnection(conn);
     });
 
     NET.peer.on("error", err => {
-      console.warn("PeerJS Host warning:", err);
       if (err.type === "unavailable-id" && !settled) {
-        NET.peer.destroy();
+        stopCloudRelay();
+        try { NET.peer.destroy(); } catch (e) {}
         initHost().then(resolve).catch(reject);
-      } else if (!settled && NET.httpEnabled) {
+      } else if (!settled && (NET.httpEnabled || mqttIsReady())) {
         finishHost();
       } else if (!settled) {
-        settled = true;
-        reject(err);
+        // Give Cloud WSS relay a moment before failing
+        setTimeout(() => {
+          if (!settled) {
+            if (mqttIsReady() || NET.httpEnabled) finishHost();
+            else { settled = true; reject(err); }
+          }
+        }, 1200);
       }
     });
   });
@@ -369,7 +624,6 @@ function initGuest(code, playerName) {
 
     const hc = createHybridConn(targetId, null);
     NET.hostConn = hc;
-    startServerRelay();
 
     let settled = false;
     let joinRetryTimer = null;
@@ -389,11 +643,32 @@ function initGuest(code, playerName) {
 
     const sendJoinHandshake = () => {
       if (NET.joined) { cleanupRetry(); return; }
-      hc.send({ type: "JOIN_REQ", name: playerName || "Guest" });
+      hc.send({ type: "JOIN_REQ", name: playerName || "Guest" }, { allBrokers: true });
     };
 
+    startServerRelay();
+    startCloudRelay(() => {
+      if (!NET.joined) sendJoinHandshake();
+    });
+
     // Immediate attempt over HTTP/SSE if served by serve.py
-    setTimeout(sendJoinHandshake, 60);
+    if (NET.httpEnabled) setTimeout(sendJoinHandshake, 60);
+
+    const connectRtcAttempt = () => {
+      if (!NET.peer || NET.peer.disconnected || NET.peer.destroyed || hc.isRtcOpen()) return;
+      try {
+        const rtcConn = NET.peer.connect(targetId, { reliable: true });
+        hc.rtcConn = rtcConn;
+        rtcConn.on("open", () => {
+          if (!NET.joined) sendJoinHandshake();
+        });
+        rtcConn.on("data", data => handleNetData(data, hc));
+        rtcConn.on("close", () => {
+          if (!NET.httpEnabled && !mqttIsReady()) handlePeerDisconnect("Host");
+        });
+        rtcConn.on("error", () => {});
+      } catch (e) {}
+    };
 
     let tries = 0;
     joinRetryTimer = setInterval(() => {
@@ -404,48 +679,30 @@ function initGuest(code, playerName) {
         if (!settled) { settled = true; reject(new Error("Timed out waiting for Host response. Check room code.")); }
         return;
       }
-      // If direct WebRTC hasn't opened yet and HTTP isn't enabled, also try WS relay explicitly
+      sendJoinHandshake();
       if (!hc.isRtcOpen() && !NET.httpEnabled) {
         wsSend(targetId, { _mid: makeMsgId(), type: "JOIN_REQ", name: playerName || "Guest" });
-      } else {
-        sendJoinHandshake();
+        if (tries === 3 || tries === 6) connectRtcAttempt();
       }
     }, 1200);
 
     if (NET.peer) { try { NET.peer.destroy(); } catch (e) {} }
-    NET.peer = new Peer(NET.myId, { debug: 1, config: ICE_CONFIG });
+    NET.peer = new Peer(NET.myId, { debug: 0, config: ICE_CONFIG });
 
     NET.peer.on("open", id => {
       NET.myId = id;
-      setupSocketRelay(NET.peer, err => {
-        if (!NET.httpEnabled) {
-          cleanupRetry();
-          if (!settled) { settled = true; reject(err); }
-        }
-      });
-
-      const rtcConn = NET.peer.connect(targetId, { reliable: true });
-      hc.rtcConn = rtcConn;
-
-      rtcConn.on("open", () => {
-        if (!NET.joined) sendJoinHandshake();
-      });
-
-      rtcConn.on("data", data => {
-        handleNetData(data, hc);
-      });
-
-      rtcConn.on("close", () => {
-        if (!NET.httpEnabled) handlePeerDisconnect("Host");
-      });
-
-      rtcConn.on("error", err => {
-        console.warn("WebRTC DataChannel warning:", err);
-      });
+      setupSocketRelay(NET.peer);
+      connectRtcAttempt();
     });
 
-    NET.peer.on("error", err => {
-      console.warn("PeerJS Guest warning:", err);
+    NET.peer.on("disconnected", () => {
+      if (NET.active && NET.peer && !NET.peer.destroyed) {
+        try { NET.peer.reconnect(); } catch (e) {}
+      }
+    });
+
+    NET.peer.on("error", () => {
+      // PeerJS P2P errors (e.g. Symmetric NAT / EXPIRE) are non-fatal: Cloud WSS / HTTP relay handles the session seamlessly
     });
   });
 }
@@ -463,7 +720,7 @@ function handleIncomingConnection(rtcConn) {
 
   rtcConn.on("data", data => handleNetData(data, hc));
   rtcConn.on("close", () => {
-    if (!NET.httpEnabled) {
+    if (!NET.httpEnabled && !mqttIsReady()) {
       removeGuestConnection(hc);
     }
   });
@@ -486,6 +743,7 @@ window.addEventListener("beforeunload", () => {
     } else if (NET.hostConn) {
       const bye = { _mid: makeMsgId(), type: "BYE", playerIndex: NET.myPlayerIndex };
       if (NET.hostConn.isRtcOpen()) NET.hostConn.rtcConn.send(bye);
+      else mqttSend(NET.hostConn.peer, bye, NET.hostConn.mqttIdx, true);
       if (NET.httpEnabled && navigator.sendBeacon && NET.roomCode && NET.myId) {
         navigator.sendBeacon("/api/send", JSON.stringify({
           room: NET.roomCode,
@@ -853,7 +1111,7 @@ function forwardToOtherGuests(msg, excludePlayerIdx) {
       try { c.rtcConn.send(msg); } catch (e) {}
     } else if (NET.httpEnabled) {
       needHttp = true;
-    } else {
+    } else if (!mqttSend(c.peer, msg, c.mqttIdx)) {
       wsSend(c.peer, msg);
     }
   });
@@ -963,17 +1221,21 @@ function broadcast(msg) {
     msg._mid = makeMsgId();
   }
   let needHttp = false;
+  const mqttBrokers = new Set();
   NET.connections.forEach(conn => {
     if (!conn.open) return;
     if (conn.isRtcOpen()) {
       try { conn.rtcConn.send(msg); } catch (e) {}
     } else if (NET.httpEnabled) {
       needHttp = true;
+    } else if (mqttIsReady()) {
+      mqttBrokers.add(conn.mqttIdx != null ? conn.mqttIdx : 0);
     } else {
       wsSend(conn.peer, msg);
     }
   });
   if (needHttp) enqueueHttpSend("*", msg);
+  mqttBrokers.forEach(bIdx => mqttSend("*", msg, bIdx));
 }
 
 function broadcastLobby() {
