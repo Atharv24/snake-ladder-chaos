@@ -44,11 +44,13 @@ function syncGameState() {
   if (NET.active && NET.isHost && G) {
     broadcast({
       type: "STATE_SYNC",
+      stateSeq: ++NET.stateSeq,
       players: G.players.map(p => ({ pos: p.pos, cb: p.cb, pen: p.pen, items: p.items, big: p.big })),
       S: G.S,
       L: G.L,
       items: G.items,
       cat: G.cat,
+      catSkin: G.catSkin,
       catNow: G.catNow,
       curIndex: G.cur ? G.players.indexOf(G.cur) : null,
       winnerIndex: G.winner ? G.players.indexOf(G.winner) : null
@@ -65,7 +67,8 @@ async function selfMove(p, t) {
   const el = $("pw" + G.players.indexOf(p));
   const r = await awaitMove({ pieces: [{ key: "pawn", el, targets: [t] }], text: `${p.name}: drag your piece to square ${t}, or press Space.`, button: { label: "Move for me", value: 1 } });
   log(FLAVOR.move(p.name, p.pos, t));
-  await set(p, t, r !== null);   // r !== null means it was dragged and dropped (sound already played)
+  const isRemoteActor = NET.active && G.players.indexOf(p) !== NET.myPlayerIndex;
+  await set(p, t, r !== null && !isRemoteActor);   // r !== null means the local player dragged and dropped (sound already played locally)
 }
 
 // slide(p): if player p is standing on a ladder bottom or a snake head, take it. The Struggler rolls to resist first.
@@ -117,6 +120,7 @@ function rollBonus(p) {
   const b = p.cb || 0, d = p.pen || 0; p.cb = 0; p.pen = 0;
   if (b) log(`${p.name} adds a +${b} bonus to this roll.`);
   if (d) log(`${p.name} suffers a -${d} penalty on this roll.`);
+  if (b || d) { render(); syncGameState(); }
   return b - d;
 }
 // infatuate(v): the cat charms v (-1 on their next roll). The Struggler may resist.
@@ -124,6 +128,7 @@ async function infatuate(v) {
   if (v.cls === "struggler") { const r = d6(); log(`${v.name} rolls ${r} against the cat\u2019s charm.`); if (r % 2 === 0) { log("Even! Immune to cuteness."); return; } log("Odd. Those eyes are irresistible."); }
   v.pen = (v.pen || 0) + 1;
   log(`${v.name} is infatuated with the cat: -1 on their next roll.`);
+  render(); syncGameState();
 }
 
 // ------------------------------------------------------------------ ROLLING
@@ -259,9 +264,9 @@ LOGIC.charmer = async p => {
 // ------------------------------------------------------------------ THE CAT'S TURN (after its owner's turn)
 // catTurn(p): the cat moves by its own roll (it wraps around past 100), infatuates anyone it jumps over and knocks down anyone it lands on.
 async function catTurn(p) {
-  G.catNow = true; render();
+  G.catNow = true; render(); syncGameState();
   let again = true;
-  while (again && !G.winner) {
+  while (again && !G.winner && !p.disconnected) {
     again = false;
     const r = await roll(p, "roll for the cat");
     log(FLAVOR.catRoll(p.name, r));
@@ -273,9 +278,9 @@ async function catTurn(p) {
     for (const v of G.players.filter(q => q !== p && q.pos !== t && path.has(q.pos))) await infatuate(v);
     let k = 0;
     for (const v of G.players.filter(q => q !== p && q.pos === t)) if (await hit(v, v.pos > 10 ? v.pos - 10 : 1, "knocked down by the cat")) k++;
-    if (k) { p.cb = (p.cb || 0) + 3 * k; log(`${p.name} gains +${3 * k} on his next roll. Good kitty!`); }
+    if (k) { p.cb = (p.cb || 0) + 3 * k; log(`${p.name} gains +${3 * k} on his next roll. Good kitty!`); render(); syncGameState(); }
   }
-  G.catNow = false; render();
+  G.catNow = false; render(); syncGameState();
 }
 
 // ------------------------------------------------------------------ THE TURN LOOP
@@ -283,13 +288,16 @@ async function catTurn(p) {
 // so the next player starts from a clean screen.
 function resetInteraction() {
   PEND = null; DRAG = null; DD = null; ITEMWAIT = null; TGT = null;     // no pending drag or item choice, nothing held
+  NET.pendingMoveRes = null; NET.pendingChoiceRes = null; NET.pendingItemRes = null; NET.pendingTargetRes = null; NET.pendingActorIdx = null;
   document.querySelectorAll(".slot.usable").forEach(e => e.classList.remove("usable"));
+  if (DICE.slideTimer) { clearTimeout(DICE.slideTimer); DICE.slideTimer = null; }
+  if (DICE.finishTimer) { clearTimeout(DICE.finishTimer); DICE.finishTimer = null; }
   DICE.waiting = false; DICE.flying = false; DICE.canInteract = false; DICE.play = null; DICE.done = null;
   $("rollBtn").classList.remove("ready");
   $("moveBtn").style.display = "none"; $("moveBtn").onclick = null;
   $("gHandle").innerHTML = ""; $("gGhost").innerHTML = ""; setHL([]); setPrompt("");
-  document.querySelectorAll(".grab, .drag").forEach(e => e.classList.remove("grab", "drag"));
-  G.catNow = false; render();
+  document.querySelectorAll(".grab, .drag, .rdrag").forEach(e => e.classList.remove("grab", "drag", "rdrag"));
+  G.catNow = false; render(); syncGameState();
 }
 // ERRORS = number of turns in a row that crashed. If it reaches 3 the game stops with a message instead of looping forever.
 let ERRORS = 0;
@@ -322,6 +330,7 @@ function spawnItem(quiet) {
   G.items.push({ type, sq });
   if (!quiet) log(FLAVOR.spawn(ITEMS[type].name, sq));
   render();
+  if (!quiet) syncGameState();
 }
 // landOn(p): called whenever player p arrives on a square. It runs BEFORE slide() takes a snake or ladder, so if an item shares a tile with a snake head (the Charmer or a stick can move a head onto one)
 // the player picks the item up first and is bitten afterwards. A placed toy brick trips them (-3 on their next roll); a loose item is picked up
@@ -401,22 +410,26 @@ async function play() {
   const rk = p => p.cls === "charmer" ? -1 : p.cls === "cat" ? 1 : 0;   // turn order rank
   G.order = [...G.players].sort((a, b) => rk(a) - rk(b));
   while (!G.winner) {
+    if (G.order.every(q => q.disconnected)) break;
     for (const p of G.order) {
       if (G.winner) break;
+      if (p.disconnected) continue;
       try {
         G.turnNo = (G.turnNo || 0) + 1;
         if (G.turnNo % ITEM_EVERY === 0) spawnItem();                 // a new item appears every ITEM_EVERY turns
         let again = true;
-        while (again && !G.winner) {
+        while (again && !G.winner && !p.disconnected) {
           G.cur = p; render();
           syncGameState();
           log(`<b>\u2014 ${FLAVOR.turn(esc(p.name))} \u2014</b>`);
           await itemPhase(p);                                          // items are used before rolling
+          if (p.disconnected) break;
           again = await (LOGIC[p.cls] || LOGIC.base)(p);          // run this class's turn
-          if (again && !G.winner) log(FLAVOR.again(p.name));
+          if (again && !G.winner && !p.disconnected) log(FLAVOR.again(p.name));
         }
-        if (p.cls === "cat" && !G.winner) await catTurn(p);
-        p.big = false; render();                                      // an energy-drink boost lasts for the turn only
+        if (p.cls === "cat" && !G.winner && !p.disconnected) await catTurn(p);
+        if (p.big) { p.big = false; render(); syncGameState(); }       // an energy-drink boost lasts for the turn only
+        else render();
         ERRORS = 0;                                               // a turn finished normally
       } catch (err) {
         console.error("Turn crashed:", err);
@@ -433,6 +446,12 @@ async function play() {
     }
   }
   render();
+  if (!G.winner) return;
+  if (NET.active && NET.isHost) {
+    broadcast({ type: "GAME_OVER", winnerIndex: G.players.indexOf(G.winner) });
+    showLocalGameOverPrompt();
+    return;
+  }
   await choose(`${G.winner.name} wins!`, [{ label: "Play again", value: 1 }]);
   location.reload();
 }

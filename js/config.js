@@ -100,10 +100,9 @@ var S = { n: 2, rows: [], msg: "", pick: null, mode: "local", netState: "idle" }
 // ---- The board log (right side). log("text") adds one line; HTML like <b> is allowed ----
 function log(t) {
   const l = $("log");
-  l.innerHTML += `<div>${t}</div>`;
-  l.scrollTop = l.scrollHeight;   // keep the newest line in view
+  if (l) { l.insertAdjacentHTML("beforeend", `<div>${t}</div>`); l.scrollTop = l.scrollHeight; }   // keep the newest line in view
   const big = $("biglog");        // if the log is open in the big pop-up, add the line there too
-  if (big) { big.innerHTML += `<div>${t}</div>`; big.scrollTop = big.scrollHeight; }
+  if (big) { big.insertAdjacentHTML("beforeend", `<div>${t}</div>`); big.scrollTop = big.scrollHeight; }
   if (typeof NET !== "undefined" && NET.active && NET.isHost) {
     broadcast({ type: "LOG_LINE", html: t });
   }

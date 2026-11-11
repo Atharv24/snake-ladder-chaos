@@ -52,6 +52,19 @@ img { display: block; user-select: none; -webkit-user-drag: none; }
 .ib .bsh { left: -2px; width: 76px; }
 .ib .face { transform: translateY(-5px); transition: transform .15s; }   /* tabs that are not selected hover above their shadow... */
 .ib.on .face { transform: none; }                                       /* ...the selected one is pressed down onto it */
+.ib.unread::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  top: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ff7529;
+  border: 3px solid #c3f73a;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
 
 /* ---- no bold anywhere (the pixel font looks smeared when bolded) ---- */
 b, strong { font-weight: normal; }
@@ -129,6 +142,7 @@ b, strong { font-weight: normal; }
 /* ---- pawns (heads on the board) ---- */
 .pw { transition: transform .4s cubic-bezier(.3, 1.25, .5, 1); pointer-events: none; }   /* smooth moving / growing / shrinking */
 .pw.drag { transition: none; }
+.pw.rdrag { transition: transform .06s linear; }
 .pw.grab { pointer-events: all; cursor: grab; }
 .pw.cat { pointer-events: all; cursor: pointer; }
 .pw .ring { display: none; }

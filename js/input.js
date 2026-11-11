@@ -27,6 +27,10 @@ function makeBtn(label, alt) {
 // opts are strings or {label, value, alt}. While buttons are showing, the prompt grows to cover most of the log (CSS class "choice").
 function choose(msg, opts, p) {
   const actor = p || (G && G.cur);
+  if (actor && actor.disconnected) {
+    const first = opts[0];
+    return Promise.resolve(first ? (first.value ?? first) : 0);
+  }
   const curIdx = actor && G ? G.players.indexOf(actor) : 0;
   const isMyTurn = !NET.active || !G || (curIdx === NET.myPlayerIndex);
 
@@ -37,10 +41,16 @@ function choose(msg, opts, p) {
     }
     if (!isMyTurn) {
       setPrompt(`${actor.name} is making a choice...`);
+      NET.pendingActorIdx = curIdx;
       return new Promise(res => {
         NET.pendingChoiceRes = res;
       });
     }
+  }
+
+  // If currently on Chat tab when a choice arrives for us, switch to Board log so buttons are visible
+  if (typeof TAB !== "undefined" && TAB === "chat" && typeof showTab === "function") {
+    showTab("boardlog");
   }
 
   return new Promise(res => {
@@ -77,6 +87,7 @@ let DRAG = null;
 // awaitMove({pieces, text, button}): wait until the player drops one of the pieces on one of its allowed squares,
 // OR presses the helper button on the rolling board (e.g. "Move for me") OR hits the Space bar. Resolves { key, to } for a drop, or null for the button.
 async function awaitMove({ pieces, text, button }) {
+  if (G && G.cur && G.cur.disconnected) return null;
   const curIdx = G && G.cur ? G.players.indexOf(G.cur) : 0;
   const isMyTurn = !NET.active || !G || (curIdx === NET.myPlayerIndex);
 
@@ -96,6 +107,7 @@ async function awaitMove({ pieces, text, button }) {
 
     if (!isMyTurn) {
       setPrompt(`Waiting for ${G.cur.name} to make their move...`);
+      NET.pendingActorIdx = curIdx;
       return new Promise(res => {
         NET.pendingMoveRes = res;
       });
@@ -109,6 +121,8 @@ async function awaitMove({ pieces, text, button }) {
     if (!button) return;                                    // no helper button for this move: only a drop can finish it
     mb.querySelector("span").textContent = button.label; mb.style.display = "block";
     mb.onclick = () => {
+      mb.onclick = null;
+      mb.style.display = "none";
       if (NET.active) sendAction({ type: "MOVE", result: null });
       res(null);
     };
@@ -136,17 +150,17 @@ window.addEventListener("keydown", e => {
   e.preventDefault();
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   if (DICE.waiting && !DICE.flying && DICE.canInteract) { sfx("small"); rollPressed(); }
-  else if ($("moveBtn").style.display === "block") { sfx("small"); $("moveBtn").click(); }   // "Move for me" / "Just roll" / "Roll" (item phase) / "Cancel" (item targeting)
+  else if ($("moveBtn").style.display === "block" && $("moveBtn").onclick) { sfx("small"); $("moveBtn").click(); }
 });
 
 // Mouse pressed: grab a piece, throw a die, or click the cat.
 window.addEventListener("pointerdown", e => {
   const t = e.target;
   const sl = t.closest && t.closest(".slot.usable");                                // clicking one of your glowing items (item phase)
-  if (sl && ITEMWAIT) { e.preventDefault(); ITEMWAIT.res(+sl.dataset.i); return; }
+  if (sl && ITEMWAIT) { e.preventDefault(); const fn = ITEMWAIT.res; ITEMWAIT = null; fn(+sl.dataset.i); return; }
   if (TGT) {                                                                        // choosing a target square for an item
     const [x, y] = stagePt(e), sq = squareAt(x, y);
-    if (TGT.targets.includes(sq)) { e.preventDefault(); TGT.res(sq); return; }
+    if (TGT.targets.includes(sq)) { e.preventDefault(); const fn = TGT.res; TGT = null; fn(sq); return; }
   }
   if (t.closest && t.closest(".cat")) { switchCat(); sfx("small"); }                                  // 4. clicking the cat changes its picture (any time, any player)
   const die = t.closest && t.closest(".die");
@@ -169,8 +183,13 @@ function dragTo(e) {
   if (!DRAG) return;
   DRAG.moved = true;
   const [x, y] = stagePt(e), p = DRAG.piece;
-  if (p.ghost) $("gGhost").innerHTML = p.ghost(x, y);
-  else p.el.style.transform = `translate(${f1(x)}px,${f1(y)}px) scale(.95)`;
+  if (p.ghost) {
+    $("gGhost").innerHTML = p.ghost(x, y);
+    sendDragPreview({ kind: "head", h: p.key, x, y, targets: p.targets });
+  } else {
+    p.el.style.transform = `translate(${f1(x)}px,${f1(y)}px) scale(.95)`;
+    sendDragPreview({ kind: "pawn", x, y, targets: p.targets });
+  }
 }
 // Mouse released: drop. Legal square -> the move is done. Anywhere else -> the piece slides back.
 window.addEventListener("pointerup", e => {
@@ -180,8 +199,21 @@ window.addEventListener("pointerup", e => {
   p.el.classList.remove("drag"); $("gGhost").innerHTML = ""; setHL([]);
   const ok = DRAG.moved && p.targets.includes(sq);
   DRAG = null;
-  if (ok) { sfx("tock"); PEND.res({ key: p.key, to: sq }); }          // a good drop: the "tock" sound plays right now, as the piece lands
-  else render();                                                                    // snap the pawn back to its square
+  if (ok && PEND) {
+    const fn = PEND.res;
+    PEND = null;
+    sfx("tock");
+    // Optimistically lock guest's pawn onto the dropped tile so render() never rubber-bands it back
+    if (NET.active && !NET.isHost && p.key === "pawn" && G && G.players[NET.myPlayerIndex]) {
+      G.players[NET.myPlayerIndex].pos = sq;
+      G._quietMove = { idx: NET.myPlayerIndex, pos: sq };
+      render();
+    }
+    fn({ key: p.key, to: sq });
+  } else {
+    sendDragPreview({ kind: "end" });
+    render();                                                                    // snap the pawn back to its square
+  }
 });
 
 // makeHandles(heads): put a copy of each snake head the Charmer may grab on top of the board, with a lime outline that pulses in size
@@ -200,10 +232,16 @@ function makeHandles(heads) {
 // ITEMWAIT = waiting for the player to click one of their glowing items: { res }. TGT = waiting for a click on one of the highlighted squares: { targets, res }.
 let ITEMWAIT = null, TGT = null;
 // showHelper(label, onclick): show the big helper button on the rolling board with a label (it doubles as the Space-bar action).
-function showHelper(label, fn) { const mb = $("moveBtn"); mb.querySelector("span").textContent = label; mb.style.display = "block"; mb.onclick = fn; }
+function showHelper(label, fn) {
+  const mb = $("moveBtn");
+  mb.querySelector("span").textContent = label;
+  mb.style.display = "block";
+  mb.onclick = () => { mb.onclick = null; mb.style.display = "none"; fn(); };
+}
 function hideHelper() { const mb = $("moveBtn"); mb.style.display = "none"; mb.onclick = null; }
 // awaitItemChoice(p, text, label): make player p's items glow and wait. Resolves with the SLOT NUMBER of the item they click, or null if they press the helper button (label, e.g. "Roll").
 async function awaitItemChoice(p, text, label) {
+  if (p.disconnected) return null;
   const pIdx = G.players.indexOf(p);
   const isMyTurn = !NET.active || !G || (pIdx === NET.myPlayerIndex);
 
@@ -213,6 +251,7 @@ async function awaitItemChoice(p, text, label) {
 
   if (!isMyTurn) {
     setPrompt(`Waiting for ${p.name} to choose items or roll...`);
+    NET.pendingActorIdx = pIdx;
     return new Promise(res => {
       NET.pendingItemRes = res;
     });
@@ -240,6 +279,7 @@ async function awaitItemChoice(p, text, label) {
 }
 // awaitTarget({targets, text, label}): highlight squares (pulsing lime outline) and wait for a click on one of them. Resolves with the square, or null if "Cancel" (the helper button / Space) is pressed.
 async function awaitTarget({ targets, text, label }) {
+  if (G && G.cur && G.cur.disconnected) return null;
   const curIdx = G && G.cur ? G.players.indexOf(G.cur) : 0;
   const isMyTurn = !NET.active || !G || (curIdx === NET.myPlayerIndex);
 
@@ -249,6 +289,7 @@ async function awaitTarget({ targets, text, label }) {
     }
     if (!isMyTurn) {
       setPrompt(`Waiting for ${G.cur.name} to choose target...`);
+      NET.pendingActorIdx = curIdx;
       return new Promise(res => {
         NET.pendingTargetRes = res;
       });
@@ -287,10 +328,12 @@ function flyItem(type, from, to, mode, isRemote) {
   const at = (p, rot, sc) => `translate(${f1(p[0] - f.w / 2)}px,${f1(p[1] - f.h / 2)}px) rotate(${rot}deg) scale(${sc})`;
   const mid = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2 - (toss ? Math.min(200, 70 + dist * .25) : 0)];   // the top of the arc
   const spin = toss ? (type === "stick" ? 720 : 540) : 0;
+  const dur = toss ? 750 : 650;
   const anim = el.animate([{ transform: at(from, 0, 1) }, { transform: at(mid, spin / 2, toss ? 1.3 : 1.05), offset: .5 }, { transform: at(to, spin, toss ? 1 : .95) }],
-    { duration: toss ? 750 : 650, easing: toss ? "ease-in-out" : "cubic-bezier(.45,.05,.4,1)", fill: "forwards" });
+    { duration: dur, easing: toss ? "ease-in-out" : "cubic-bezier(.45,.05,.4,1)", fill: "forwards" });
   sfx("small");
-  return anim.finished.catch(() => {}).then(() => { el.remove(); sfx("tock"); });
+  // Race against sleep(dur + 80) so backgrounded tabs never hang awaiting Web Animations!
+  return Promise.race([anim.finished.catch(() => {}), sleep(dur + 80)]).then(() => { el.remove(); sfx("tock"); });
 }
 
 // ------------------------------------------------------------------ 3. THE DICE
@@ -298,11 +341,7 @@ function flyItem(type, from, to, mode, isRemote) {
 // A throw is PRE-CALCULATED: the game first simulates the whole roll (movement, wall bounces, dice bumping each other, tumbling) and decides
 // the result, then adjusts the tumbling so the cube arrives exactly on the result as it stops - no snapping at the end.
 // The roll is then played back over ROLL_MS milliseconds (config.js), matching the dice sound.
-// DICE = state of the dice on the rolling board.
-//   list: the dice { el, cube, x, y, vx, vy, rx, ry, mode, val }   (rx/ry = rotation angles in degrees; mode = "idle" | "held" | "fly" | "rest")
-//   waiting: true while the game waits for a throw   flying: true while a roll is playing   done: function that finishes the roll
-//   play: the roll being played back { t0: start time, frames: simulated positions/angles per die, vals: results }
-const DICE = { list: [], waiting: false, flying: false, canInteract: false, done: null, loop: false, play: null, slideTimer: null };
+const DICE = { list: [], waiting: false, flying: false, canInteract: false, done: null, loop: false, play: null, slideTimer: null, finishTimer: null };
 let DD = null;   // DD = the die being held by the mouse: { i, samples:[{t,x,y}] }
 // FACE_ANGLES[v] = the [rx, ry] rotation that turns face v towards the player (opposite faces add up to 7).
 const FACE_ANGLES = { 1: [0, 0], 2: [-90, 0], 3: [0, -90], 4: [0, 90], 5: [90, 0], 6: [0, 180] };
@@ -320,37 +359,52 @@ function dieDraw(d) {
   d.cube.style.transform = `rotateX(${f1(d.rx)}deg) rotateY(${f1(d.ry)}deg)`;
 }
 
+function spawnDiceElements(n, canGrab) {
+  $("dice").innerHTML = "";
+  DICE.list = [];
+  for (let i = 0; i < n; i++) {
+    const el = document.createElement("div"); el.className = "die"; el.dataset.i = i;
+    el.style.pointerEvents = canGrab ? "auto" : "none";
+    el.style.cursor = canGrab ? "grab" : "default";
+    const idlePos = DICE_IDLE[i] || DICE_IDLE[0];
+    el.innerHTML = `<div class="cube">${[1, 2, 3, 4, 5, 6].map(v => `<img class="df df${v}" src="${A(`dice_no_${v}.svg`)}" alt="" draggable="false">`).join("")}</div>`;
+    $("dice").appendChild(el);
+    const d = { el, cube: el.firstChild, x: idlePos[0], y: idlePos[1], vx: 0, vy: 0, rx: rnd(0, 359), ry: rnd(0, 359), mode: "idle", val: 1 };
+    dieDraw(d); DICE.list.push(d);
+  }
+}
+
 // rollDice(n): put n dice at their waiting spot (slowly spinning) and wait for a throw or the ROLL button. Resolves with the list of results.
 function rollDice(n) {
+  if (G && G.cur && G.cur.disconnected) {
+    return Promise.resolve(Array.from({ length: n }, () => d6()));
+  }
   const curIdx = G && G.cur ? G.players.indexOf(G.cur) : 0;
   const isMyTurn = !NET.active || !G || (curIdx === NET.myPlayerIndex);
 
   if (NET.active && NET.isHost) {
-    // Notify guests that dice are waiting to be rolled
-    broadcast({ type: "WAIT_ROLL", n, playerIndex: curIdx, prompt: $("ptxt") ? $("ptxt").textContent : "" });
+    broadcast({
+      type: "WAIT_ROLL",
+      n,
+      playerIndex: curIdx,
+      catNow: !!(G && G.catNow),
+      prompt: $("ptxt") ? $("ptxt").textContent : ""
+    });
   }
 
   return new Promise(res => {
     if (DICE.slideTimer) { clearTimeout(DICE.slideTimer); DICE.slideTimer = null; }
+    if (DICE.finishTimer) { clearTimeout(DICE.finishTimer); DICE.finishTimer = null; }
     DICE.play = null;
     DD = null;
-    $("dice").innerHTML = "";
-    DICE.list = [];
-    for (let i = 0; i < n; i++) {
-      const el = document.createElement("div"); el.className = "die"; el.dataset.i = i;
-      el.style.pointerEvents = isMyTurn ? "auto" : "none";
-      el.style.cursor = isMyTurn ? "grab" : "default";
-      el.innerHTML = `<div class="cube">${[1, 2, 3, 4, 5, 6].map(v => `<img class="df df${v}" src="${A(`dice_no_${v}.svg`)}" alt="" draggable="false">`).join("")}</div>`;
-      $("dice").appendChild(el);
-      const d = { el, cube: el.firstChild, x: DICE_IDLE[i][0], y: DICE_IDLE[i][1], vx: 0, vy: 0, rx: rnd(0, 359), ry: rnd(0, 359), mode: "idle", val: 1 };
-      dieDraw(d); DICE.list.push(d);
-    }
+    spawnDiceElements(n, isMyTurn);
     DICE.waiting = true; DICE.flying = false; DICE.canInteract = isMyTurn;
 
     if (isMyTurn) {
       $("rollBtn").classList.add("ready");   // the ROLL button appears only for the active player
     } else {
       $("rollBtn").classList.remove("ready");
+      NET.pendingActorIdx = curIdx;
       setPrompt(`Waiting for ${G && G.cur ? G.cur.name : 'player'} to roll...`);
     }
 
@@ -360,7 +414,6 @@ function rollDice(n) {
 }
 
 // stepDice(list, dt): advance a list of dice by dt milliseconds of physics: move, bounce off the walls, slow down (friction), tumble, bump each other.
-// Works on any list of { x, y, vx, vy, rx, ry, mode }, so it can run on the real dice or on the pre-calculation copy. Returns true while something still moves.
 function stepDice(list, dt) {
   let moving = false;
   list.forEach(d => {
@@ -380,9 +433,34 @@ function stepDice(list, dt) {
   return moving;
 }
 
-// diceTick(): runs every frame. Waiting/held dice spin slowly in place; during a roll it plays back the pre-calculated frames.
-// IMPORTANT: the next frame is requested FIRST and the work is wrapped in try/catch, so even if something goes wrong once, this loop can never die
-// (a dead loop would leave a roll unfinished and freeze the game).
+// finishRollPlayback(P): settles dice on their exact final frame, slides to centre, and resolves rollDice().
+// Safe to call from either diceTick or the background-tab-safe setTimeout; runs only once per roll.
+function finishRollPlayback(P) {
+  if (!P || P.completed) return;
+  P.completed = true;
+  if (DICE.finishTimer) { clearTimeout(DICE.finishTimer); DICE.finishTimer = null; }
+  if (DICE.play === P) DICE.play = null;
+  DICE.flying = false;
+  const last = P.frames[P.frames.length - 1];
+  DICE.list.forEach((d, i) => {
+    if (last && last[i]) { d.x = last[i].x; d.y = last[i].y; d.rx = last[i].rx; d.ry = last[i].ry; }
+    d.mode = "rest";
+    dieDraw(d);
+  });
+  if (DICE.slideTimer) clearTimeout(DICE.slideTimer);
+  DICE.slideTimer = setTimeout(() => {
+    DICE.slideTimer = null;
+    slideDiceToCenter();
+    DICE.list.forEach(dieDraw);
+    if (DICE.done) {
+      const cb = DICE.done;
+      DICE.done = null;
+      NET.pendingActorIdx = null;
+      cb(P.vals);
+    }
+  }, 280);
+}
+
 let diceLast = 0;
 function diceTick(now) {
   requestAnimationFrame(diceTick);
@@ -392,22 +470,9 @@ function diceTick(now) {
     separateDice(DICE.list);                                             // also keeps a held die from being dragged onto the other one
     const P = DICE.play;
     if (P) {                                                             // a roll is being played back
-      // k = how far through the roll we are (0..1). It is clamped at 0 because the browser's frame time can be a hair EARLIER than the moment
-      // the throw happened; a negative k used to crash this loop and freeze the game.
       const k = Math.min(1, Math.max(0, (performance.now() - P.t0) / ROLL_MS)), f = P.frames[Math.min(P.frames.length - 1, Math.floor(k * (P.frames.length - 1)))];
-      DICE.list.forEach((d, i) => { d.x = f[i].x; d.y = f[i].y; d.rx = f[i].rx; d.ry = f[i].ry; });
-      if (k >= 1) {                                                      // roll finished: the dice rest on their results
-        DICE.play = null; DICE.flying = false; DICE.list.forEach(d => d.mode = "rest");
-        DICE.slideTimer = setTimeout(() => {
-          DICE.slideTimer = null;
-          slideDiceToCenter();
-          if (DICE.done) {
-            const cb = DICE.done;
-            DICE.done = null;
-            cb(P.vals);
-          }
-        }, 300);   // a small pause, then the dice slide to the middle of the board (the buttons live at the bottom)
-      }
+      DICE.list.forEach((d, i) => { if (f[i]) { d.x = f[i].x; d.y = f[i].y; d.rx = f[i].rx; d.ry = f[i].ry; } });
+      if (k >= 1) finishRollPlayback(P);
     }
     DICE.list.forEach(dieDraw);
   } catch (err) { console.error("Dice loop error:", err); }
@@ -420,8 +485,6 @@ function slideDiceToCenter() {
   DICE.list.forEach((d, i) => { d.x = cx + (i - (n - 1) / 2) * DICE_GAP; d.y = cy; d.el.style.transition = "transform .55s cubic-bezier(.4, 0, .2, 1)"; });
 }
 
-// separateDice(list): keep every pair of dice at least DICE_GAP apart. Two flying dice bounce off each other; a flying die bounces off a resting
-// or held one; if there is no other way (e.g. squeezed against a wall) the other die is nudged away.
 function separateDice(L) {
   for (let pass = 0; pass < 3; pass++) {
     for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
@@ -429,18 +492,18 @@ function separateDice(L) {
       let dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
       if (dist >= DICE_GAP) continue;
       if (dist < 1) { dx = 1; dy = 0; dist = 1; }
-      const nx = dx / dist, ny = dy / dist, ov = DICE_GAP - dist;                       // n = direction from a to b, ov = how much they overlap
-      const mv = d => d.mode === "held" ? 0 : d.mode === "rest" ? .25 : 1;                 // how easily each die is pushed (held = not at all)
+      const nx = dx / dist, ny = dy / dist, ov = DICE_GAP - dist;
+      const mv = d => d.mode === "held" ? 0 : d.mode === "rest" ? .25 : 1;
       const ma = mv(a), mb = mv(b), tot = (ma + mb) || 1;
-      a.x -= nx * ov * ma / tot; a.y -= ny * ov * ma / tot; b.x += nx * ov * mb / tot; b.y += ny * ov * mb / tot;   // push apart
-      if (pass === 0) {                                                                  // bounce (only once per step)
-        const va = a.vx * nx + a.vy * ny, vb = b.vx * nx + b.vy * ny;                   // speeds along the line between the dice
+      a.x -= nx * ov * ma / tot; a.y -= ny * ov * ma / tot; b.x += nx * ov * mb / tot; b.y += ny * ov * mb / tot;
+      if (pass === 0) {
+        const va = a.vx * nx + a.vy * ny, vb = b.vx * nx + b.vy * ny;
         if (a.mode === "fly" && b.mode === "fly") { if (va - vb > 0) { const d = (va - vb) * .9; a.vx -= d * nx; a.vy -= d * ny; b.vx += d * nx; b.vy += d * ny; } }
         else if (a.mode === "fly" && va > 0) { a.vx -= 1.8 * va * nx; a.vy -= 1.8 * va * ny; }
         else if (b.mode === "fly" && vb < 0) { b.vx -= 1.8 * vb * nx; b.vy -= 1.8 * vb * ny; }
       }
       dieClamp(a); dieClamp(b);
-      const d2 = Math.hypot(b.x - a.x, b.y - a.y);                                       // still overlapping because of a wall? shove the other die along
+      const d2 = Math.hypot(b.x - a.x, b.y - a.y);
       if (d2 < DICE_GAP - .5) { const k = DICE_GAP - d2; b.x += nx * k; b.y += ny * k; dieClamp(b); if (Math.hypot(b.x - a.x, b.y - a.y) < DICE_GAP - .5) { a.x -= nx * k; a.y -= ny * k; dieClamp(a); } }
     }
   }
@@ -463,6 +526,7 @@ function dieDown(i, e) {
 function dieMove(e) {
   const [x, y] = trayPt(e), d = DICE.list[DD.i];
   d.x = x; d.y = y; dieClamp(d);
+  sendDragPreview({ kind: "die", i: DD.i, x: d.x, y: d.y });
   DD.samples.push({ t: performance.now(), x, y });
   if (DD.samples.length > 8) DD.samples.shift();
 }
@@ -476,30 +540,45 @@ function dieUp(e) {
   launch(vx * k, vy * k);
 }
 
-// launch(vx,vy): start a roll. Speeds are in pixels per millisecond. Decides the results, pre-calculates the whole roll, starts the sound and the playback.
-function launch(vx, vy, forceVals) {
+// launch(vx,vy,forceVals,startDice): start a roll. Speeds are in pixels per millisecond.
+// Syncs exact initial positions/rotations across peers and guarantees background-tab-safe completion.
+function launch(vx, vy, forceVals, startDice) {
+  // Ensure dice DOM matches the roll count even if WAIT_ROLL arrived late
+  if (forceVals && DICE.list.length !== forceVals.length) {
+    spawnDiceElements(forceVals.length, false);
+    if (!DICE.loop) { DICE.loop = true; requestAnimationFrame(diceTick); }
+  }
+  if (!DICE.list.length) return;
+
   DICE.waiting = false; DICE.flying = true; DICE.canInteract = false;
   DICE.list.forEach(d => { d.el.style.pointerEvents = "none"; d.el.style.cursor = "default"; });
-  $("rollBtn").classList.remove("ready");                      // the ROLL button disappears until the next roll
+  $("rollBtn").classList.remove("ready");
+
+  if (Array.isArray(startDice)) {
+    DICE.list.forEach((d, idx) => {
+      const sd = startDice[idx];
+      if (sd) { d.x = sd.x; d.y = sd.y; d.rx = sd.rx; d.ry = sd.ry; }
+    });
+  }
+
   const base = Math.atan2(vy, vx), sp = Math.hypot(vx, vy);
-  const vals = forceVals || DICE.list.map(() => d6());   // vals = the results
+  const vals = forceVals || DICE.list.map(() => d6());
 
   if (NET.active && !forceVals) {
-    sendAction({ type: "ROLL_LAUNCH", vx, vy, vals });
+    const snap = DICE.list.map(d => ({ x: +d.x.toFixed(1), y: +d.y.toFixed(1), rx: +d.rx.toFixed(1), ry: +d.ry.toFixed(1) }));
+    sendAction({ type: "ROLL_LAUNCH", vx, vy, vals, startDice: snap });
   }
-  // sim = a copy of the dice that we run the physics on ahead of time
+
   const sim = DICE.list.map((d, j) => {
-    const a = base + (j ? (j % 2 ? .45 : -.45) : 0), s = sp * (1 - .12 * j);   // extra dice fly off at slightly different angles
+    const a = base + (j ? (j % 2 ? .45 : -.45) : 0), s = sp * (1 - .12 * j);
     return { x: d.x, y: d.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, rx: d.rx, ry: d.ry, mode: "fly" };
   });
   const frames = [sim.map(d => ({ x: d.x, y: d.y, rx: d.rx, ry: d.ry }))];
-  for (let n = 0; n < 900; n++) {                              // run the physics (16.7ms per step) until every die has stopped
+  for (let n = 0; n < 900; n++) {
     const moving = stepDice(sim, 16.7);
     frames.push(sim.map(d => ({ x: d.x, y: d.y, rx: d.rx, ry: d.ry })));
     if (!moving && sim.every(d => d.mode === "rest")) break;
   }
-  // make each cube end exactly on its result: work out how far its final tumble angles are from the result's angles, and spread that
-  // correction over the whole roll in step with how much it has rotated so far - so it never snaps at the end
   sim.forEach((d, i) => {
     const [X, Y] = FACE_ANGLES[vals[i]], last = frames[frames.length - 1][i];
     const tx = Math.round((last.rx - X) / 360) * 360 + X, ty = Math.round((last.ry - Y) / 360) * 360 + Y, dx = tx - last.rx, dy = ty - last.ry;
@@ -507,7 +586,11 @@ function launch(vx, vy, forceVals) {
     for (let n = 1; n < frames.length; n++) cum.push(cum[n - 1] + Math.abs(frames[n][i].rx - frames[n - 1][i].rx) + Math.abs(frames[n][i].ry - frames[n - 1][i].ry));
     frames.forEach((f, n) => { const q = cum[cum.length - 1] > 1 ? cum[n] / cum[cum.length - 1] : n / (frames.length - 1); f[i].rx += dx * q; f[i].ry += dy * q; });
   });
-  DICE.list.forEach(d => { d.mode = "fly"; d.cube.style.transition = "none"; });
-  DICE.play = { t0: performance.now(), frames, vals };
-  sfx("dice");                                                 // the rattle starts at the very moment the dice are thrown
+  DICE.list.forEach(d => { d.mode = "fly"; d.cube.style.transition = "none"; d.el.style.transition = "none"; });
+  const P = { t0: performance.now(), frames, vals, completed: false };
+  DICE.play = P;
+  if (DICE.finishTimer) clearTimeout(DICE.finishTimer);
+  // Fallback completion timer so unfocused/backgrounded tabs never stall the game loop!
+  DICE.finishTimer = setTimeout(() => finishRollPlayback(P), ROLL_MS + 60);
+  sfx("dice");
 }

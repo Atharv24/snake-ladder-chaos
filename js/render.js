@@ -358,7 +358,7 @@ function placePawns() {
     list.forEach((t, i) => {
       const row = Math.floor(i / cols), inRow = row < rows - 1 ? cols : m - cols * (rows - 1);          // last row may be shorter: centre it
       const x = cx + (i % cols - (inRow - 1) / 2) * cell, y = cy - 2 + (row - (rows - 1) / 2) * cell;
-      if (t.el.classList.contains("drag")) return;                                                     // don't fight the mouse while dragging
+      if (!t.el || t.el.classList.contains("drag") || t.el.classList.contains("rdrag")) return;         // don't fight local or live remote dragging
       t.el.style.transform = `translate(${f1(x)}px,${f1(y)}px) scale(${(size / 100 * (t.big ? 1.18 : 1)).toFixed(3)})`;   // CSS transition animates growing/shrinking/moving
     });
   }
@@ -402,6 +402,7 @@ function updateSlots() {
 // glow (CSS class "pop") and plays a small click. G.ctrPrev remembers the last text of every counter; the first call for a counter never animates.
 function setCounter(id, text) {
   const el = $(id), prev = G.ctrPrev || (G.ctrPrev = {});
+  if (!el) return;
   el.textContent = text;
   if (prev[id] !== undefined && prev[id] !== text) {
     const box = el.parentElement;
@@ -446,5 +447,6 @@ function switchCat() {
   if (!G || !G.cat || ART.cats.length < 2) return;
   let n; do { n = rnd(0, ART.cats.length - 1); } while (n === G.catSkin % ART.cats.length);
   G.catSkin = n;
-  $("catimg").setAttribute("href", catHref());
+  if ($("catimg")) $("catimg").setAttribute("href", catHref());
+  if (typeof NET !== "undefined" && NET.active && NET.isHost && typeof syncGameState === "function") syncGameState();
 }

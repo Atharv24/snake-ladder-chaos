@@ -10,6 +10,22 @@ function initRows() { while (S.rows.length < CONFIG.MAX_PLAYERS) S.rows.push({ n
 // S.pick = number of the player row whose class chooser is open (null = closed).
 function drawSetup() {
   initRows();
+  const setupEl = $("setup");
+  const activeEl = document.activeElement;
+  let savedInput = null;
+  if (activeEl && activeEl.tagName === "INPUT" && setupEl && setupEl.contains(activeEl)) {
+    savedInput = {
+      id: activeEl.id || null,
+      playerIdx: activeEl.dataset ? activeEl.dataset.playerInput : null,
+      value: activeEl.value,
+      selStart: activeEl.selectionStart,
+      selEnd: activeEl.selectionEnd
+    };
+    if (savedInput.playerIdx != null && S.rows[+savedInput.playerIdx]) {
+      S.rows[+savedInput.playerIdx].name = savedInput.value;
+    }
+  }
+
   let h = `<h2>Snakes, Ladders and Chaos!</h2>`;
 
   // Mode Switcher: Local Play vs Online Multiplayer
@@ -24,7 +40,7 @@ function drawSetup() {
     h += "</select></div>";
     for (let i = 0; i < S.n; i++) {
       const r = S.rows[i], c = CLASSES.find(c => c.id === r.cls);
-      h += `<div class="row"><span class="dot" style="background:${COLORS[i]}"></span><input value="${esc(r.name)}" ${r.locked ? "disabled" : ""} onchange="S.rows[${i}].name=this.value">
+      h += `<div class="row"><span class="dot" style="background:${COLORS[i]}"></span><input data-player-input="${i}" value="${esc(r.name)}" ${r.locked ? "disabled" : ""} oninput="S.rows[${i}].name=this.value" onchange="S.rows[${i}].name=this.value">
 <button class="cls" ${r.locked ? "disabled" : ""} onclick="S.pick=${i};drawSetup()">${c ? `<img src="${A(PORT[c.id] + ".svg")}" alt="">${c.name}` : "Pick a class"}<small>${r.locked ? "locked in" : "click to choose"}</small></button></div>`;
     }
     h += `<div id="smsg">${S.msg}</div><button class="cbtn go" onclick="start()"><span>Start game</span></button>`;
@@ -34,7 +50,7 @@ function drawSetup() {
       h += `<div style="margin: 20px 0; display:flex; gap: 20px; align-items:center;">
         <button class="cbtn" style="--s:1.5; width:280px" onclick="startHosting()"><span>Host Game</span></button>
         <span style="font-size:28px; color:#fff3cf;">or</span>
-        <input id="joinCodeInput" placeholder="ROOM CODE" maxlength="6" style="text-transform:uppercase; width:220px; height:68px; font-size:32px; text-align:center;">
+        <input id="joinCodeInput" placeholder="ROOM CODE" maxlength="6" onkeydown="if(event.key==='Enter')joinRoomPressed()" style="text-transform:uppercase; width:220px; height:68px; font-size:32px; text-align:center;">
         <button class="cbtn alt" style="--s:1.5; width:240px" onclick="joinRoomPressed()"><span>Join Game</span></button>
       </div>`;
     } else if (S.netState === "hosting" || S.netState === "joining" || S.netState === "lobby") {
@@ -53,7 +69,7 @@ function drawSetup() {
         const isMe = (i === NET.myPlayerIndex);
         const canEdit = isMe;
         h += `<div class="row"><span class="dot" style="background:${COLORS[i]}"></span>
-          <input value="${esc(r.name || `Player ${i + 1}`)}" ${canEdit ? "" : "disabled"} onchange="onPlayerNameChanged(${i}, this.value)">
+          <input data-player-input="${i}" value="${esc(r.name ?? `Player ${i + 1}`)}" ${canEdit ? "" : "disabled"} oninput="onPlayerNameInput(${i}, this.value)" onchange="onPlayerNameChanged(${i}, this.value)">
           <button class="cls" ${canEdit ? "" : "disabled"} onclick="${canEdit ? `S.pick=${i};drawSetup()` : ''}">
             ${c ? `<img src="${A(PORT[c.id] + ".svg")}" alt="">${c.name}` : "Pick a class"}
             <small>${isMe ? "(You - click to choose)" : "Player slot"}</small>
@@ -74,7 +90,21 @@ function drawSetup() {
     h += `<div id="chooser" onclick="if(event.target===this){S.pick=null;drawSetup()}"><div class="grid">` +
       CLASSES.map(c => `<button class="card" onclick="onClassPicked('${c.id}')"><img src="${A(PORT[c.id] + ".svg")}" alt=""><div><b>${c.name}</b><span>${c.text}</span></div></button>`).join("") + `</div></div>`;
   }
-  $("setup").innerHTML = h;
+  setupEl.innerHTML = h;
+
+  // Restore focus & cursor position if a peer lobby update redrew the screen while typing
+  if (savedInput && S.pick == null) {
+    const restoreEl = savedInput.id
+      ? $(savedInput.id)
+      : (savedInput.playerIdx != null ? setupEl.querySelector(`input[data-player-input="${savedInput.playerIdx}"]`) : null);
+    if (restoreEl && !restoreEl.disabled) {
+      restoreEl.value = savedInput.value;
+      restoreEl.focus();
+      try {
+        if (savedInput.selStart != null) restoreEl.setSelectionRange(savedInput.selStart, savedInput.selEnd);
+      } catch (e) {}
+    }
+  }
 }
 
 function setGameMode(m) {
@@ -125,12 +155,38 @@ async function joinRoom(code) {
   }
 }
 
+let nameSyncTimer = null;
+
 function leaveOnlineLobby() {
+  if (nameSyncTimer) { clearTimeout(nameSyncTimer); nameSyncTimer = null; }
+  if (NET.active) {
+    try {
+      if (NET.isHost) {
+        broadcast({ type: "HOST_LEFT" });
+      } else if (NET.hostConn) {
+        const bye = { _mid: makeMsgId(), type: "BYE", playerIndex: NET.myPlayerIndex };
+        if (NET.hostConn.isRtcOpen()) NET.hostConn.rtcConn.send(bye);
+        else if (NET.httpEnabled && NET.roomCode && NET.myId) {
+          fetch("/api/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ room: NET.roomCode, src: NET.myId, dst: NET.hostConn.peer, data: bye })
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {}
+  }
+  if (typeof stopServerRelay === "function") stopServerRelay();
   if (NET.peer) {
     try { NET.peer.destroy(); } catch (e) {}
+    NET.peer = null;
   }
   NET.active = false;
   NET.isHost = false;
+  NET.joined = false;
+  NET.connections = [];
+  NET.peerMap = {};
+  NET.hostConn = null;
   S.netState = "idle";
   S.rows = [];
   S.n = 2;
@@ -147,10 +203,23 @@ function copyInviteLink(link) {
   });
 }
 
-function onPlayerNameChanged(idx, val) {
+function onPlayerNameInput(idx, val) {
   initRows();
   if (S.rows[idx]) S.rows[idx].name = val;
-  if (NET.active) sendLobbyUpdate(val, undefined);
+  if (!NET.active) return;
+  if (nameSyncTimer) clearTimeout(nameSyncTimer);
+  nameSyncTimer = setTimeout(() => {
+    nameSyncTimer = null;
+    sendLobbyUpdate(val, undefined);
+  }, 240);
+}
+
+function onPlayerNameChanged(idx, val) {
+  if (nameSyncTimer) { clearTimeout(nameSyncTimer); nameSyncTimer = null; }
+  initRows();
+  const clean = val.trim() || `Player ${idx + 1}`;
+  if (S.rows[idx]) S.rows[idx].name = clean;
+  if (NET.active) sendLobbyUpdate(clean, undefined);
 }
 
 function onClassPicked(clsId) {
@@ -164,6 +233,11 @@ function onClassPicked(clsId) {
 
 function startOnlineGame() {
   if (!NET.isHost) return;
+  if (nameSyncTimer) { clearTimeout(nameSyncTimer); nameSyncTimer = null; }
+  if (S.n < CONFIG.MIN_PLAYERS) {
+    S.msg = `Waiting for at least ${CONFIG.MIN_PLAYERS} players to start.`;
+    return drawSetup();
+  }
   start();
 }
 
@@ -270,8 +344,14 @@ function showTab(k) {
   $("settings").style.display = k === "settings" ? "block" : "none";
   $("chatView").style.display = k === "chat" ? "block" : "none";
   $("chatInputBar").style.display = k === "chat" ? "flex" : "none";
+  $("prompt").style.display = k === "chat" ? "none" : "flex";
   $("soon").style.display = "none";
   $("expand").style.display = (k === "boardlog" || k === "rulebook") ? "block" : "none";   // only working panels can expand
+  if (k === "chat") {
+    NET.unreadChat = 0;
+    const btn = $("tb_chat");
+    if (btn) btn.classList.remove("unread");
+  }
 }
 
 function chatSendPressed() {
