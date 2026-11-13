@@ -26,9 +26,13 @@ js/                 game code, loaded in this order by index.html
   input.js          prompts/buttons, drag and drop, the dice, Space bar
   rules.js          class rules, ITEMS, flavour text, the turn loop       <- edit class and item behaviour here
   main.js           start screen, tabs (log / rulebook / about), window scaling
+  preload.js        starts loading art / fonts / sounds at page open and drives the loading bar
+  local.js          the Local, Host and Join screens (player lines) and the class pick panels; loads after title.js
+  title.js          the title screen (logo, Play / Options / About, light/dark switch); loads after main.js
 assets/             all SVG art, the font, sounds/ (mp3 effects) and manifest.json
 docs/mockup.jpg     the first design mockup
 docs/mockup_v2.jpg  the mockup with the three containers and item slots
+docs/Title_Screen.jpg, Play_Screen.jpg, Local_Screen.jpg  the title screen reference; docs/palette.svg  the colour palette
 RULES.txt           the full rules: every class, items, bonus-roll rules
 serve.py            tiny local web server
 ```

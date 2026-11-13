@@ -25,7 +25,7 @@ BONUS ROLL ON A 6 - WHO GETS IT
   Bully ................ yes (on a 6)
   Struggler ............ yes (on a 6)
   Oracle ............... yes (on a 6, whether the call was right or wrong)
-  Cat owner ............ yes for his own roll; the CAT also gets another roll whenever it rolls a 6
+  Cat owner ............ yes for her own roll; the CAT also gets another roll whenever it rolls a 6
   Gambler .............. NO bonus for a single 6. He only gets another turn when BOTH dice are 6 (double 6s)
   Snake Charmer ........ NEVER gets a bonus roll, not even on a 6
 
@@ -56,13 +56,13 @@ GAMBLER
   (From 96 and below the normal total-and-bounce rule applies, so he can finish with an exact total of 100.)
 
 THE ONE WITH THE CAT (CAT OWNER)
-* His own turn is a plain roll: a 6 gives another turn. He goes LAST in the turn order.
-* After his own turn the CAT takes a turn: he rolls a die for the cat. The cat moves forward that many squares and WRAPS AROUND the
+* Her own turn is a plain roll: a 6 gives another turn. She goes LAST in the turn order.
+* After her own turn the CAT takes a turn: she rolls a die for the cat. The cat moves forward that many squares and WRAPS AROUND the
   board (past 100 it carries on from square 1; landing on exactly 100 sends it to square 1). The cat rolls again if it rolls a 6.
 * The cat ignores snakes, ladders and items, and cannot win the game. Items cannot be used on the cat and the cat cannot be a target.
 * Players the cat JUMPS OVER (squares between where it started and where it lands) are INFATUATED: -1 on their next roll.
 * A player the cat LANDS ON is KNOCKED DOWN 10 squares (to square 1 if they were on 10 or below). They slide down a snake or climb a ladder
-  if they land on one. For each player actually knocked down the owner gets +3 on his next roll (a Struggler who dodges does not count).
+  if they land on one. For each player actually knocked down the owner gets +3 on her next roll (a Struggler who dodges does not count).
   If that roll overshoots 100 the bonus is lost.
 * Click the cat (any player, any time) to change its picture. It also changes whenever the cat moves to a new square.
 
@@ -76,19 +76,19 @@ STRUGGLER
 * Items work on him normally and NEVER trigger his dodge ability.
 
 ORACLE
-* Before rolling he calls a number from 1 to 6.
-* If the roll matches his call he rolls a 3-sided bonus die (1-3) and adds it to his move, and snakes cannot bite him on that move
-  (ladders still work). A wrong call costs nothing - he just moves normally.
-* If the boosted move would carry him past 100 he stays put.
+* Before rolling she calls a number from 1 to 6.
+* If the roll matches her call she rolls a 3-sided bonus die (1-3) and adds it to her move, and snakes cannot bite her on that move
+  (ladders still work). A wrong call costs nothing - she just moves normally.
+* If the boosted move would carry her past 100 she stays put.
 * A 6 gives another turn (right call or wrong).
 
 SNAKE CHARMER
 * Always goes FIRST in every round.
-* Before rolling he may drag the head of one snake that is on his row, or on the row directly above or below him, to another FREE square on
+* Before rolling she may drag the head of one snake that is on her row, or on the row directly above or below her, to another FREE square on
   that same row. The square must still be above the snake's tail and must not already be used by a snake or a ladder (head, tail, bottom or top). The snake's tail stays
   put; the body follows the head. Players already standing on the new head square are safe - only players who arrive there later get bitten.
-* After moving a head he must wait one turn before he can move another ("recharging"). He can always choose "Just roll" instead.
-* NO bonus roll on a 6 - he never gets another turn.
+* After moving a head she must wait one turn before she can move another ("recharging"). She can always choose "Just roll" instead.
+* NO bonus roll on a 6 - she never gets another turn.
 
 ITEMS
 -----

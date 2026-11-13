@@ -12,7 +12,7 @@ const k = t => `<span class="k">${t}</span>`;
 // Who gets another turn after rolling a 6: [class, yes/no, note]
 const BONUS_ROLL = [
   ["Bully", 1, "on a 6"], ["Struggler", 1, "on a 6"], ["Oracle", 1, "on a 6, right call or wrong"],
-  ["Cat owner", 1, "for his own roll; the CAT also rolls again on its own 6"],
+  ["Cat owner", 1, "for her own roll; the CAT also rolls again on its own 6"],
   ["Gambler", 0, "only on double 6s"], ["Snake Charmer", 0, "never, not even on a 6"]
 ];
 
@@ -33,11 +33,11 @@ const CLASS_RULES = {
     k("The finish:") + " from 97, 98 or 99 the total no longer counts. EITHER die must show the exact number needed (on 99, a 1 wins). If not, he stays - but a 1 still sends him back by the other die (double 1s: stay). From 96 and below the normal total-and-bounce rule applies."
   ],
   cat: [
-    "His own turn is a plain roll (a 6 gives another turn). He goes " + k("LAST") + " in the turn order.",
+    "Her own turn is a plain roll (a 6 gives another turn). She goes " + k("LAST") + " in the turn order.",
     "Then the " + k("CAT") + " takes a turn: roll a die for it. It moves forward that many squares and " + k("wraps around") + " the board (past 100 it carries on from 1; exactly 100 sends it to 1). It rolls again on a 6.",
     "The cat ignores snakes, ladders and items, and cannot win. Items cannot be used on it or against it.",
     "Players the cat " + k("jumps over") + " are infatuated: -1 on their next roll.",
-    "A player the cat " + k("lands on") + " is knocked down 10 squares (to square 1 if on 10 or below), then takes any snake or ladder there. Each player actually knocked down gives the owner " + k("+3") + " on his next roll (a Struggler who dodges doesn't count). If that roll overshoots 100, the bonus is lost.",
+    "A player the cat " + k("lands on") + " is knocked down 10 squares (to square 1 if on 10 or below), then takes any snake or ladder there. Each player actually knocked down gives the owner " + k("+3") + " on her next roll (a Struggler who dodges doesn't count). If that roll overshoots 100, the bonus is lost.",
     "Click the cat any time to change its picture. It also changes whenever the cat moves."
   ],
   struggler: [
@@ -47,15 +47,15 @@ const CLASS_RULES = {
     "Items work on him normally and never trigger his dodge."
   ],
   oracle: [
-    "Before rolling he " + k("calls a number") + " from 1 to 6.",
-    "If the roll matches, he rolls a " + k("3-sided bonus die") + " and adds it to his move, and snakes cannot bite him on that move (ladders still work). A wrong call costs nothing.",
-    "If the boosted move would go past 100 he stays put.",
+    "Before rolling she " + k("calls a number") + " from 1 to 6.",
+    "If the roll matches, she rolls a " + k("3-sided bonus die") + " and adds it to her move, and snakes cannot bite her on that move (ladders still work). A wrong call costs nothing.",
+    "If the boosted move would go past 100 she stays put.",
     "A 6 gives another turn, right call or wrong."
   ],
   charmer: [
     "Always goes " + k("FIRST") + " in every round.",
-    "Before rolling he may drag the " + k("head of one snake") + " on his row, or the row above or below, to another free square on that same row. The square must be above the snake's tail and not used by any snake or ladder. The tail stays put; the body follows. Players already standing on the new head square are safe; only later arrivals are bitten.",
-    "After moving a head he must wait one turn (\"recharging\"). He can always choose \"Just roll\" instead.",
+    "Before rolling she may drag the " + k("head of one snake") + " on her row, or the row above or below, to another free square on that same row. The square must be above the snake's tail and not used by any snake or ladder. The tail stays put; the body follows. Players already standing on the new head square are safe; only later arrivals are bitten.",
+    "After moving a head she must wait one turn (\"recharging\"). She can always choose \"Just roll\" instead.",
     "No bonus roll on a 6, ever."
   ]
 };

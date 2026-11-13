@@ -143,7 +143,7 @@ async function joinRoom(code) {
   drawSetup();
   try {
     NET.onLobbyUpdate = () => drawSetup();
-    const myName = `Guest ${Math.floor(Math.random() * 900 + 100)}`;
+    const myName = "Player";   // the host assigns the real name (Player 2, 3, ...)
     await initGuest(code, myName);
     S.netState = "lobby";
     S.msg = `Connected to room ${NET.roomCode}!`;
@@ -247,7 +247,7 @@ function startOnlineGame() {
 
 // start(): the Start button. Checks the setup (two players can't share a class: they roll off, the loser picks again), then builds the game and begins play().
 function start() {
-  S.pick = null;
+  S.pick = null; const t0 = performance.now();   // (timing: see the console line after render() below)
   if (!ART.ready) { S.msg = ART.error || "The art is still loading, try again in a moment."; return drawSetup(); }
   const rows = S.rows.slice(0, S.n); S.msg = "";
   if (rows.some(r => !r.cls)) { S.msg = "Every player needs a class."; return drawSetup(); }
@@ -280,6 +280,7 @@ function start() {
   $("log").innerHTML = "";
   setPrompt(""); log("<b>Welcome to Snakes, Ladders and Chaos! May the best player win.</b>");
   render();
+  console.log(`start(): board generated + drawn in ${Math.round(performance.now() - t0)} ms`);
   for (let i = 0; i < ITEM_START; i++) spawnItem(true);                       // the game starts with a few items lying around
   log("Items are scattered across the board: step on one to pick it up!");
 
@@ -373,7 +374,8 @@ $("topbtns").innerHTML = TOP.map((b, i) => `<button class="ib" id="tb_${b[0]}" s
 showTab("boardlog");
 
 // fit(): scale the fixed 1920x1080 stage to fill the window (with bars at the sides/top if the window isn't 16:9). Runs on load and whenever the window is resized.
-function fit() { const s = Math.min(innerWidth / 1920, innerHeight / 1080); $("stage").style.transform = `translate(${(innerWidth - 1920 * s) / 2}px,${(innerHeight - 1080 * s) / 2}px) scale(${s})`; }
+function fit() { const s = Math.min(innerWidth / 1920, innerHeight / 1080); document.documentElement.style.setProperty("--fit", s);   // --fit = the stage scale, also used by the class pick panels (css)
+  $("stage").style.transform = `translate(${(innerWidth - 1920 * s) / 2}px,${(innerHeight - 1080 * s) / 2}px) scale(${s})`; }
 addEventListener("resize", fit); fit();
 
 // ---- the three containers behind the sections ----
@@ -387,7 +389,7 @@ loadAssets().then(() => {
   // Auto-join room from URL query param ?room=CODE
   const urlParams = new URLSearchParams(window.location.search);
   const roomParam = urlParams.get("room");
-  if (roomParam) {
+  if (roomParam && !window.TITLE_ACTIVE) {   // (with the new title screen, js/title.js opens the Join screen for invite links instead)
     setGameMode("online");
     joinRoom(roomParam);
   }

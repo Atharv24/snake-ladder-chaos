@@ -875,9 +875,9 @@ function handleNetData(msg, fromConn) {
         NET.connections.push(fromConn);
       }
       if (!S.rows[pIdx]) {
-        S.rows[pIdx] = { name: msg.name || `Player ${pIdx + 1}`, cls: "", locked: false };
+        S.rows[pIdx] = { name: `Player ${pIdx + 1}`, cls: "", locked: false };
       } else {
-        S.rows[pIdx].name = msg.name || `Player ${pIdx + 1}`;
+        S.rows[pIdx].name = `Player ${pIdx + 1}`;
         S.rows[pIdx].cls = "";
         S.rows[pIdx].locked = false;
       }
@@ -1313,6 +1313,7 @@ function showLocalGameOverPrompt() {
 }
 
 function applyRemoteGameStart(msg) {
+  if (typeof leaveTitle === "function") leaveTitle();   // the host started: remove the title/lobby screens
   G = msg.G;
   G.built = 0;
   G._stateSeq = 0;

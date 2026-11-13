@@ -215,7 +215,7 @@ const LOGIC = {
 };
 LOGIC.struggler = LOGIC.base;   // the Struggler's special rules live inside slide(), hit() and infatuate()
 
-// CAT OWNER: his own turn is a normal roll plus any +3 bonuses the cat earned him. (The cat itself moves in catTurn below.)
+// CAT OWNER: her own turn is a normal roll plus any +3 bonuses the cat earned her. (The cat itself moves in catTurn below.)
 LOGIC.cat = async p => {
   const r = await roll(p), net = rollBonus(p);
   await go(p, p.pos + Math.max(0, r + net));
@@ -278,7 +278,7 @@ async function catTurn(p) {
     for (const v of G.players.filter(q => q !== p && q.pos !== t && path.has(q.pos))) await infatuate(v);
     let k = 0;
     for (const v of G.players.filter(q => q !== p && q.pos === t)) if (await hit(v, v.pos > 10 ? v.pos - 10 : 1, "knocked down by the cat")) k++;
-    if (k) { p.cb = (p.cb || 0) + 3 * k; log(`${p.name} gains +${3 * k} on his next roll. Good kitty!`); render(); syncGameState(); }
+    if (k) { p.cb = (p.cb || 0) + 3 * k; log(`${p.name} gains +${3 * k} on her next roll. Good kitty!`); render(); syncGameState(); }
   }
   G.catNow = false; render(); syncGameState();
 }

@@ -28,16 +28,26 @@ const LIME = "#c3f73a";   // the bright lime used by the art (taken from tile_da
 
 // ---- The six classes. "id" is used by the code, "name" is shown on screen, "text" is shown on the setup screen and in the Rulebook ----
 const CLASSES = [
-  { id: "bully",     name: "Bully",         text: "Land on someone with your own roll: roll a die and push or pull them that many squares (pick direction before rolling). Passing over a player lets you nudge them 1 square forward or back." },
-  { id: "gambler",   name: "Gambler",       text: "Rolls 2 dice. A 1 sends you back by the other die; double 1s stay put. Needs double 6s for an extra turn. On 97-99, either die showing the exact number you need wins." },
-  { id: "cat",       name: "The One with the Cat", text: "Rolls last. Rolls separately for a cat that knocks everyone else down a row. Anyone the cat passes over is infatuated: -1 on their next roll. Cat ignores snakes and ladders. Each player knocked down gives the owner +3 on his next roll (an overshoot loses it)." },
-  { id: "struggler", name: "Struggler",     text: "Rolls a die for every forced move. Even: dodge snakes/pushes/cat. Odd: devoured or hit. At a ladder, pick two failure numbers first: climb unless you roll one." },
-  { id: "oracle",    name: "Oracle",        text: "Call a number from 1-6 before rolling. If the roll matches, roll a 3-sided die and add it to your move; snakes can\u2019t bite you on that move. A wrong call costs nothing." },
-  { id: "charmer",   name: "Snake Charmer", text: "Always goes first. Each turn, may also move the head of a snake on his row, or the rows directly above or below him, to another square on that row, then rolls as normal. Players already on that square are safe; only new arrivals are bitten. He moves at most one head per turn, then must wait a turn before moving another. No extra turn on a 6." }
+  { id: "bully",     name: "Bully",         text: "Land exactly on a player with your own roll: roll a die and push or pull them that many squares (choose before rolling). Pass over a player: nudge them 1 square forward or back. A 6 gives another turn." },
+  { id: "gambler",   name: "Gambler",       text: "Rolls 2 dice and moves the total. A 1 on either die sends him back by the other die (double 1s: stay put). Only double 6s give another turn. Past 100 he bounces back; from 97-99 either die must show the exact number needed." },
+  { id: "cat",       name: "The One with the Cat", text: "Goes last, then rolls for the cat, which wraps around the board and ignores snakes, ladders and items. Players the cat jumps over: -1 on their next roll. Players it lands on are knocked down 10 squares and give her +3 on her next roll each (an overshoot loses it)." },
+  { id: "struggler", name: "Struggler",     text: "Every forced effect (snakes, pushes, the cat) gets a die roll: even dodges, odd hits. At a ladder, pick two failure numbers first: roll one of them and he does not climb. A 6 gives another turn." },
+  { id: "oracle",    name: "Oracle",        text: "Calls a number from 1-6 before rolling. A right call adds a 3-sided bonus die to the move, and snakes cannot bite on that move. A wrong call costs nothing. A 6 gives another turn." },
+  { id: "charmer",   name: "Snake Charmer", text: "Always goes first. Before rolling, may move the head of a snake on her row, or the row above or below, to another free square on that row, then must recharge for a turn. Players already on that square are safe. Never gets an extra turn, even on a 6." }
 ];
 
 // Which portrait file belongs to which class (files live in assets/). These are also the pawns on the board.
 const PORT = { bully: "head_bully", gambler: "head_gambler", cat: "head_catlady", struggler: "head_struggler", oracle: "head_oracle", charmer: "head_charmer" };
+
+// Short info shown on the class pick panels (most important first). <b>..</b> highlights the key words. Full rules: CLASS_RULES in rulebook.js.
+const CLASS_BRIEF = {
+  bully: { tag: "Push, pull, nudge", pts: ["<b>Land on a player:</b> roll a die and push or pull them that many squares (choose before rolling).", "<b>Pass over a player:</b> nudge them 1 square forward or back.", "Works on your own roll, before snakes and ladders.", "A 6 gives another turn."] },
+  gambler: { tag: "Two dice, big risks", pts: ["Rolls <b>2 dice</b> and moves the total.", "A <b>1</b> on either die sends you back by the other die. Double 1s: stay put.", "Extra turn only on <b>double 6s</b>.", "Past 100 you <b>bounce back</b>. From 97-99 either die must show the exact number."] },
+  cat: { tag: "A cat on the loose", pts: ["Goes <b>last</b>, then rolls for the <b>cat</b>, which wraps around the board.", "Players the cat jumps over: <b>-1</b> on their next roll.", "A player it lands on is knocked down <b>10 squares</b>; you get <b>+3</b> on your next roll for each.", "The cat ignores snakes, ladders and items."] },
+  struggler: { tag: "Dodges, mostly", pts: ["Anything forced (snakes, pushes, the cat): roll a die. <b>Even dodges</b>, odd hits.", "Ladders: pick <b>2 failure numbers</b>, then roll. Hit one and you do not climb.", "Items work normally.", "A 6 gives another turn."] },
+  oracle: { tag: "Calls the roll", pts: ["<b>Call a number</b> (1-6) before rolling.", "Right call: add a <b>d3 bonus</b>, and snakes cannot bite on that move.", "A wrong call costs nothing.", "A 6 gives another turn."] },
+  charmer: { tag: "Moves snake heads", pts: ["Always goes <b>first</b>.", "Before rolling, drag a <b>snake head</b> on your row (or one row above or below) to another free square, then recharge for a turn.", "Players already on that square are safe.", "<b>Never</b> gets an extra turn, even on a 6."] }
+};
 
 // Player colours (player 1 first). Each pawn gets a disc of its player's colour behind the face.
 const COLORS = ["#d64545", "#3b82c4", "#e0a82e", "#8b5cc7", "#2f9e8f", "#e07a2e", "#c44a96", "#6b7280"];
