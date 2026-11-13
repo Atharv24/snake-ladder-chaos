@@ -5,7 +5,7 @@
   <title>Snakes, Ladders and Chaos!</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <link rel="icon" href="assets/dice_no_6.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body>
   <!-- Everything lives on a fixed 1920x1080 "stage" that main.js scales to fit the window. -->
@@ -39,7 +39,9 @@
       </div>
     </div>
     <div id="fly"></div>                         <!-- layer for thrown / sliding items -->
-    <div id="setup"></div>                       <!-- start screen -->
+    <div id="setup"></div>                       <!-- start screen (setup) -->
+    <div id="title"></div>                       <!-- title screen: logo, Play / Options / About (js/title.js) -->
+    <div id="tLoad"><div class="ld-bar"><i></i></div><span class="ld-ok"><svg viewBox="0 0 12 10" width="12" height="10"><path d="M1 5.5L4.5 9 11 1.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/></svg>Assets loaded</span></div>
     <div id="modal" onclick="if(event.target===this)this.style.display='none'"></div>                       <!-- pop-up windows (rulebook etc.) -->
   </div>
   <!-- The code, in loading order (each file only uses things from the files above it). -->
@@ -48,11 +50,14 @@
   <script src="js/board.js?v=3"></script>
   <script src="js/art.js?v=3"></script>
   <script src="js/audio.js?v=3"></script>
+  <script src="js/preload.js?v=6"></script>
   <script src="js/render.js?v=3"></script>
   <script src="js/network.js?v=3"></script>
   <script src="js/input.js?v=3"></script>
   <script src="js/rules.js?v=3"></script>
   <script src="js/rulebook.js?v=3"></script>
   <script src="js/main.js?v=3"></script>
+  <script src="js/title.js?v=6"></script>
+  <script src="js/local.js?v=6"></script>
 </body>
 </html>

@@ -235,16 +235,20 @@ function stackLadder(ctx, a, b) {
 // drawLadders(): paint every ladder with its brown outline (the outline = the ladder's silhouette stamped around it in a 3px circle).
 function drawLadders() {
   const cv = ladderCanvas(), ctx = cv.getContext("2d"), Q = 2, W = cv.width, H = cv.height;
-  const mk = () => { const c = document.createElement("canvas"); c.width = W; c.height = H; return c; };
-  const tmp = mk(), tx = tmp.getContext("2d"), sil = mk(), sx = sil.getContext("2d");
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+  const M = Math.max(ART.ladder.straight.w, ART.ladder.slanted.w) * 1.1 + 40;                  // room around a ladder for its width + the 3px border
+  const tmp = document.createElement("canvas"), sil = document.createElement("canvas"), tx = tmp.getContext("2d"), sx = sil.getContext("2d");
   for (const [a, b] of Object.entries(G.L)) {
-    tx.setTransform(1, 0, 0, 1, 0, 0); tx.clearRect(0, 0, W, H); tx.setTransform(Q, 0, 0, Q, -BOARD_BOX.x * Q, -BOARD_BOX.y * Q);
+    // SPEED: only the rectangle around this ladder is processed. (The first version cleared and stamped the WHOLE board canvas ~25 times per ladder = about 2 seconds.)
+    const [x1, y1] = xy(+a), [x2, y2] = xy(b);
+    const px0 = Math.max(0, Math.floor((Math.min(x1, x2) - M - BOARD_BOX.x) * Q)), py0 = Math.max(0, Math.floor((Math.min(y1, y2) - M - BOARD_BOX.y) * Q));
+    const px1 = Math.min(W, Math.ceil((Math.max(x1, x2) + M - BOARD_BOX.x) * Q)), py1 = Math.min(H, Math.ceil((Math.max(y1, y2) + M - BOARD_BOX.y) * Q)), w = px1 - px0, h = py1 - py0;
+    tmp.width = sil.width = w; tmp.height = sil.height = h;                                    // (setting the size also clears them)
+    tx.setTransform(Q, 0, 0, Q, -BOARD_BOX.x * Q - px0, -BOARD_BOX.y * Q - py0);
     stackLadder(tx, +a, b);                                                                    // 1. this ladder on its own
-    sx.setTransform(1, 0, 0, 1, 0, 0); sx.clearRect(0, 0, W, H); sx.globalCompositeOperation = "source-over"; sx.drawImage(tmp, 0, 0);
-    sx.globalCompositeOperation = "source-in"; sx.fillStyle = BROWN; sx.fillRect(0, 0, W, H); sx.globalCompositeOperation = "source-over";   // 2. its brown silhouette
-    for (let i = 0; i < 20; i++) { const an = i / 20 * 2 * Math.PI; ctx.drawImage(sil, Math.cos(an) * 3 * Q, Math.sin(an) * 3 * Q); }       // 3. the 3px border
-    ctx.drawImage(tmp, 0, 0);                                                                  // 4. the ladder on top of its border
+    sx.drawImage(tmp, 0, 0); sx.globalCompositeOperation = "source-in"; sx.fillStyle = BROWN; sx.fillRect(0, 0, w, h); sx.globalCompositeOperation = "source-over";   // 2. its brown silhouette
+    for (let i = 0; i < 20; i++) { const an = i / 20 * 2 * Math.PI; ctx.drawImage(sil, px0 + Math.cos(an) * 3 * Q, py0 + Math.sin(an) * 3 * Q); }                       // 3. the 3px border
+    ctx.drawImage(tmp, px0, py0);                                                              // 4. the ladder on top of its border
   }
 }
 

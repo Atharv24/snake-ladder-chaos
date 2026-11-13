@@ -272,3 +272,162 @@ b, strong { font-weight: normal; }
   display: inline-block;
 }
 
+
+/* ============================================================================================================
+   TITLE SCREEN (js/title.js). Every colour used by the title screen is a variable here: edit the two blocks
+   below to retune light mode (default) and dark mode. --p-xxxxxx = what the art colour #xxxxxx turns into.
+   ============================================================================================================ */
+@font-face { font-family: LM; src: url(../assets/Little_Monster_DEMO.ttf); }
+html {
+  --tt-bg: #c3f73a; --tt-ink: #2f2504; --tt-rim: #2f2504; --tt-card: #eeffae; --tt-seg: #c3f73a;
+  --tt-track: #2f2504; --tt-trackrim: #7d9926; --tt-shine: rgba(255,255,255,.8); --tt-logo-shadow: rgba(0,0,0,.25);
+  --p-2f2504: #2f2504; --p-c3f73a: #c3f73a; --p-eeffae: #eeffae; --p-7d9926: #7d9926; --p-4b5b18: #4b5b18;
+}
+html[data-theme=dark] {
+  --tt-bg: #2f2504; --tt-ink: #c3f73a; --tt-rim: #000; --tt-card: #1c1002; --tt-seg: #2f2504;
+  --tt-track: #1c1002; --tt-trackrim: #c3f73a; --tt-shine: rgba(195,247,58,.45); --tt-logo-shadow: rgba(0,0,0,.25);
+  --p-2f2504: #c3f73a; --p-c3f73a: #2f2504; --p-eeffae: #c3f73a; --p-7d9926: #1c1002; --p-4b5b18: #110d03;
+}
+html.on-title, body.on-title { background: var(--tt-bg); transition: background-color .35s; }
+body.on-title #stage { background: none; }   /* the stage's blue would otherwise show as a thin edge around the lime title screen */
+#title { display: none; position: absolute; inset: 0; z-index: 20; background: var(--tt-bg); color: var(--tt-ink); font-family: LM, MC, monospace; overflow: hidden; transition: background-color .35s; }
+#title.on { display: block; }
+#title svg { display: block; overflow: visible; }
+.pc { transition: fill .35s; }
+.pc-2f2504 { fill: var(--p-2f2504); } .pc-c3f73a { fill: var(--p-c3f73a); } .pc-eeffae { fill: var(--p-eeffae); } .pc-7d9926 { fill: var(--p-7d9926); } .pc-4b5b18 { fill: var(--p-4b5b18); }
+
+/* logo: black 25% drop shadow; the words pop in one after another (delays are set in title.js) */
+#tLogo { position: absolute; left: 685px; top: 83px; width: 550px; }
+#tLogo svg { width: 550px; height: auto; filter: drop-shadow(8px 13px 0 var(--tt-logo-shadow)); }
+.lw { transform-box: fill-box; transform-origin: 50% 55%; }
+#title:not(.done) .lw { animation: lw-in .6s cubic-bezier(.2,1.5,.4,1) var(--d, 0s) both; }
+@keyframes lw-in { 0% { opacity: 0; transform: translateY(-70px) scale(.35) rotate(-6deg); } 100% { opacity: 1; transform: none; } }
+
+/* menu buttons: a rounded shadow slab (.tb-rim) that stays put, and the face (.tb-face) that sinks onto it when pressed */
+#tMenu { position: absolute; inset: 0; pointer-events: none; }
+.tbtn { position: absolute; width: 323px; height: 165px; padding: 0; border: 0; background: none; cursor: pointer; pointer-events: auto; color: var(--tt-ink); font-family: LM, monospace; }
+.tbtn:focus-visible, #tBack:focus-visible, #tSwitch:focus-visible { outline: 4px dashed var(--tt-ink); outline-offset: 6px; }
+.tb-rim { position: absolute; inset: 0; border-radius: 11px; background: var(--tt-rim); transition: background-color .35s; }
+.tb-face { position: absolute; left: 6px; top: 5px; width: 309.39px; height: 139.57px; transition: transform .07s; }
+.tb-face svg { width: 309.39px; height: 139.57px; }
+.tbtn:active .tb-face, .obtn:active .ob-face { transform: translateY(11px); }
+.tb-label { position: absolute; left: 0; top: 0; width: 309.39px; height: 102.35px; display: flex; align-items: center; justify-content: center; font-size: 70.9px; line-height: 1; text-transform: uppercase; white-space: nowrap; transform: translateY(7.8px); }
+.tb-shine { position: absolute; inset: 0; overflow: hidden; border-radius: 4px; pointer-events: none; }
+.tb-shine::before { content: ""; position: absolute; top: -20%; bottom: -20%; left: -45%; width: 30%; opacity: 0; transform: skewX(-22deg); background: linear-gradient(90deg, transparent, var(--tt-shine) 50%, transparent); }
+.tbtn:hover .tb-shine::before, .obtn:hover .tb-shine::before { animation: tb-shine .55s ease-out forwards; }
+@keyframes tb-shine { 0% { left: -45%; opacity: 1; } 100% { left: 130%; opacity: 1; } }
+#title:not(.done) .tbtn { pointer-events: none; animation: tb-up .7s cubic-bezier(.2,1.35,.4,1) var(--d, 2s) both; }
+@keyframes tb-up { 0% { transform: translateY(330px); } 100% { transform: none; } }
+#title.busy .tbtn, #title.busy .obtn, .tbtn.is-title { pointer-events: none; }
+
+/* back button (left of the title button on a page) */
+#tBack { display: none; position: absolute; left: 50px; top: 50px; width: 93px; height: 180px; padding: 0; border: 0; background: none; cursor: pointer; }
+#tBack .tk-shadow { position: absolute; left: 0; top: 13px; width: 93px; height: auto; } #tBack .tk-shadow path { fill: var(--tt-rim); transition: fill .35s; }
+#tBack .tk-face { position: absolute; left: 0; top: 0; width: 93px; transition: transform .07s; } #tBack .tk-face svg { width: 93px; height: auto; }
+#tBack:active .tk-face { transform: translateY(11px); }
+#title.busy #tBack { pointer-events: none; }
+
+/* the page that opens under the title */
+#tPage { display: none; position: absolute; left: 260px; top: 270px; width: 1400px; height: 740px; }
+.tp-card { width: 100%; height: 100%; box-sizing: border-box; padding: 44px 64px; overflow: auto; background: var(--tt-card); color: var(--tt-ink); border: 6px solid var(--tt-ink); border-radius: 22px; box-shadow: 0 14px 0 var(--tt-rim); font-family: MC, monospace; font-size: 30px; line-height: 1.5; transition: background-color .35s, color .35s, border-color .35s; }
+.tp-card h2 { margin: 0 0 18px; font-family: LM, MC, monospace; font-weight: normal; font-size: 64px; text-transform: uppercase; } .tp-card p { margin: 0 0 16px; }
+.tt-vol { display: flex; gap: 6px; margin: 14px 0; } .tt-seg { flex: 1; height: 70px; box-sizing: border-box; border: 4px solid var(--tt-ink); border-radius: 8px; background: var(--tt-seg); cursor: pointer; } .tt-seg.on { background: #ff7529; } .tt-seg:hover { filter: brightness(1.15); }
+
+/* light / dark switch (top right): orange sun, the switch, orange moon */
+#tSun, #tMoon { position: absolute; fill: #ff7529; stroke: #ff7529; } #tMoon { stroke: none; }
+#tSun { left: 1647px; top: 103px; width: 54px; height: 54px; } #tMoon { left: 1844px; top: 107px; width: 38px; height: 46px; }
+#tSwitch { position: absolute; left: 1712px; top: 94px; width: 121px; height: 72px; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 36px; }
+#tSwitch svg { width: 121px; height: 72px; }
+.tt-trkrim { fill: var(--tt-trackrim); transition: fill .35s; } .tt-trk { fill: var(--tt-track); transition: fill .35s; } .tt-knobring { stroke: var(--tt-track); transition: stroke .35s; }
+.tt-knob { transition: transform .3s cubic-bezier(.3,1.5,.5,1); } html[data-theme=dark] .tt-knob { transform: translateX(59px); }
+
+/* Play page: the orange description buttons (art: assets/button_playscreen_description.svg) and the row container */
+#tRows { display: none; position: absolute; inset: 0; pointer-events: none; }
+.obtn { position: absolute; width: 1029.95px; height: 174.93px; padding: 0; border: 0; background: none; cursor: pointer; pointer-events: auto; font-family: LM, monospace; }
+.ob-face { position: absolute; inset: 0; transition: transform .07s; } .ob-face svg { width: 100%; height: 100%; }
+.ob-label { position: absolute; left: 0; top: 0; width: 100%; height: 150px; display: flex; align-items: center; justify-content: center; font-size: 61px; line-height: 1; white-space: nowrap; color: #fff; transform: translateY(5px); }
+.obtn:focus-visible { outline: 4px dashed var(--tt-ink); outline-offset: 6px; }
+
+/* ============================================================================================================
+   LOCAL SCREEN + CLASS PICK PANELS (js/local.js). Orange / blue alternate like the player panels.
+   ============================================================================================================ */
+html { --tt-field: #2f2504; } html[data-theme=dark] { --tt-field: #1c1002; }
+#tLocal { display: none; position: absolute; inset: 0; pointer-events: none; } #tLocal > * { pointer-events: auto; }
+.lrow { position: absolute; width: 938px; height: 99px; transform-origin: 0 0; transition: top .3s, transform .3s, opacity .25s; }
+.lin { position: absolute; inset: 0; }
+.lbadge { position: absolute; left: 0; top: 0; width: 90px; height: 99px; box-sizing: border-box; padding-bottom: 10px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #fff; font-family: MC, monospace; font-size: 55.1px; }
+.c0 { background: #ff7529; box-shadow: inset 0 -10px 0 #e2330a; } .c1 { background: #105c7a; box-shadow: inset 0 -10px 0 #08415c; }
+.lname { position: absolute; left: 143px; top: 2px; width: 410px; height: 96px; box-sizing: border-box; padding: 12.4px 30px 0; line-height: 1; border: 0; border-radius: 9px; background: var(--tt-field); color: #fff; font-family: MC, monospace; font-size: 49.8px; outline: none; transition: background-color .35s; }
+.lname::placeholder { color: #fff; opacity: .92; } .lname:focus { box-shadow: 0 0 0 4px var(--tt-ink); }
+.lcls { position: absolute; left: 606px; top: 0; width: 332px; height: 99px; box-sizing: border-box; padding: 0 16px 10px; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 14px; overflow: hidden; color: #fff; font-family: MC, monospace; font-size: 49.9px; cursor: pointer; }
+.lcls:active { transform: translateY(5px); } .lcls img { height: 66px; width: auto; max-width: 96px; object-fit: contain; } .lcls .lt { position: relative; white-space: nowrap; }
+.lcls:hover .tb-shine::before, .pk-pick:hover .tb-shine::before { animation: tb-shine .55s ease-out forwards; }
+#tCnt { position: absolute; left: 1208px; top: 85px; width: 412px; height: 95px; display: flex; align-items: center; justify-content: space-between; }
+#tCnt .cl { font-family: MC, monospace; font-size: 52.4px; color: var(--tt-ink); white-space: nowrap; transition: color .35s; }
+#tCntBtn { position: relative; width: 125px; height: 95px; padding: 0 14px; box-sizing: border-box; border: 0; border-radius: 10px; background: var(--tt-field); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: flex-start; transition: background-color .35s; }
+/* box = 14px | digit | 12px | divider | 12px | chevron | 14px: the space left of the digit equals the space right of the chevron; the digit is centred vertically */
+#tCntBtn b { flex: none; width: 51.12px; margin-left: 0.0px; font-weight: normal; font-family: MC, monospace; font-size: 81.8px; line-height: 1; transform: translateY(10.23px); text-align: left; }
+#tCntBtn i { flex: none; width: 3px; height: 56px; background: #fff; margin-left: 6.89px; margin-right: 12px; } #tCntBtn svg { flex: none; width: 24px; height: 14px; }
+#tCntMenu { display: none; position: absolute; right: 0; top: 103px; width: 125px; z-index: 5; } #tCntMenu.open { display: block; }
+#tCntMenu button { display: block; width: 125px; height: 64px; margin-bottom: 6px; border: 0; border-radius: 10px; background: var(--tt-field); color: #fff; font-family: MC, monospace; font-size: 44px; cursor: pointer; } #tCntMenu button:hover { background: #ff7529; }
+#tHint { position: absolute; left: 1430px; top: 815px; width: 440px; text-align: right; font-family: MC, monospace; font-size: 24px; color: var(--tt-ink); }
+#tStart { pointer-events: auto; }
+
+#tPick { display: none; position: fixed; inset: 0; z-index: 100; }   /* outside the stage: covers the whole window */
+#pkPanels { position: fixed; inset: 0; pointer-events: none; }
+.pk-slot { position: absolute; bottom: 0; width: 264px; height: 806px; transform-origin: 0 100%; pointer-events: auto; }   /* positioned + scaled by layoutPanels() in local.js */
+.pk-dim { position: absolute; inset: 0; background: #000; opacity: .5; }   /* pure black, 50% */
+.pk-x { position: absolute; right: 28px; top: 28px; width: 64px; height: 64px; padding: 0; border: 0; border-radius: 12px; background: #ff7529; box-shadow: 0 6px 0 #e2330a; cursor: pointer; }
+.pk-x:active { transform: translateY(5px); box-shadow: 0 1px 0 #e2330a; }
+.pk-x::before, .pk-x::after { content: ""; position: absolute; left: 15px; right: 15px; top: 29px; height: 6px; border-radius: 3px; background: #fff; transform: rotate(45deg); } .pk-x::after { transform: rotate(-45deg); }
+.pk-panel { position: absolute; top: 0; width: 264px; height: 806px; }
+.pk-art { position: absolute; left: 0; top: 0; height: 806px; width: auto; max-width: none; }
+.pk-head { position: absolute; left: 128px; top: 128px; width: auto; transform: translate(-50%, -50%); }
+.pk-name { position: absolute; left: 12px; top: 239px; width: 240px; height: 121px;   /* centred between the head circle (ends y=239) and the description box (starts y=360) */ display: flex; align-items: center; justify-content: center; text-align: center; font-family: LM, MC, monospace; font-size: 44px; line-height: .95; color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.25); } .pk-name.long { font-size: 31px; }
+.pk-tag { position: absolute; left: 12px; top: 322px; width: 240px; text-align: center; font-family: MC, monospace; font-size: 14px; color: #fff3cf; }
+.pk-desc { position: absolute; left: 19.45px; top: 360.27px; width: 213.27px; height: 298.06px; box-sizing: border-box; padding: 0; overflow: hidden; color: #f6f1d8; font-family: MC, monospace; font-size: 15px; line-height: 1.28; }
+.pk-scroll { position: absolute; left: 0; top: 0; right: 0; bottom: 44px; box-sizing: border-box; padding: 12px 6px 6px 12px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #ff7529 #1c1002; }   /* long text scrolls inside the brown box */
+.pk-scroll::-webkit-scrollbar { width: 6px; } .pk-scroll::-webkit-scrollbar-track { background: #1c1002; border-radius: 3px; } .pk-scroll::-webkit-scrollbar-thumb { background: #ff7529; border-radius: 3px; }
+.pk-desc ul { margin: 0; padding: 0; } .pk-desc li { position: relative; list-style: none; padding-left: 13px; margin-bottom: 7px; } .pk-desc li::before { content: ""; position: absolute; left: 0; top: 5px; width: 6px; height: 6px; background: #ff7529; } .pk-desc b { font-weight: normal; color: #ffa42c; }
+.pk-more { position: absolute; left: calc(50% - 20px); bottom: 10px; width: 40px; height: 28px; padding: 0; border: 0; border-bottom: 4px solid #e2330a; border-radius: 6px; background: #ff7529; cursor: pointer; display: flex; align-items: center; justify-content: center; } .pk-more:active { transform: translateY(2px); border-bottom-width: 2px; }
+.pk-pick { position: absolute; left: 49.6px; top: 678px; width: 156.7px; height: 97.3px; padding: 0; border: 0; border-radius: 6px; background: none; cursor: pointer; overflow: hidden; }
+.pk-shine { position: absolute; inset: 0; border-radius: 132px 132px 0 0; overflow: hidden; pointer-events: none; }
+.pk-shine::before { content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; opacity: 0; transform: skewX(-18deg); background: linear-gradient(90deg, transparent, rgba(255,255,255,.75) 50%, transparent); }
+.pk-panel.shining .pk-shine::before { animation: tb-shine .2s ease-in-out forwards; }
+#tFull { display: none; position: fixed; inset: 0; z-index: 2; background: rgba(0,0,0,.5); }
+.tf-card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(1000px, 92vw); height: min(820px, 88vh); box-sizing: border-box; padding: 34px 48px; overflow: auto; background: #2f2504; border: 5px solid #c3f73a; border-radius: 18px; color: #f6f1d8; font-family: MC, monospace; font-size: 26px; line-height: 1.4; }
+.tf-card h2 { margin: 0 0 14px; font-family: LM, MC, monospace; font-weight: normal; font-size: 60px; color: #c3f73a; } .tf-card ul { margin: 0; padding-left: 28px; } .tf-card li { margin-bottom: 12px; } .tf-card .k, .tf-card b { color: #ffa42c; font-weight: normal; }
+
+/* Start pressed with a missing class: that player's badge + Pick a Class button shine and a chevron points at them */
+.lbadge { position: absolute; overflow: hidden; }
+.lbadge .lb-t { position: relative; }
+.lchev { position: absolute; left: -62px; top: 36px; width: 24px; height: 24px; box-sizing: border-box; border-top: 9px solid var(--tt-ink); border-right: 9px solid var(--tt-ink); transform: rotate(45deg); opacity: 0; pointer-events: none; }
+.lrow.need .lchev { opacity: 1; animation: lchev .4s ease-in-out infinite alternate; } @keyframes lchev { from { margin-left: 0; } to { margin-left: 14px; } }
+.lrow.need .tb-shine::before { animation: tb-shine .55s ease-out 2; }
+
+/* ============================================================================================================
+   HOST / JOIN (js/local.js) + loading bar (js/preload.js)
+   ============================================================================================================ */
+#tLocal #tCnt { display: none; } #tLocal[data-mode=local] #tCnt { display: flex; }
+.tgrp { display: none; position: absolute; left: 570px; top: 85px; height: 95px; gap: 18px; align-items: center; }
+#tLocal[data-mode=host] #tHost, #tLocal[data-mode=join] #tJoin { display: flex; }
+/* the game's own orange button (blue at night): the .cbtn art, see css above */
+.hbtn { --s: 1.7; flex: none; } html[data-theme=dark] .hbtn { --img: var(--btn-blue); }
+#hGen { width: 343px; } #hCopy { width: 370px; } #jBtn { width: 300px; }
+.hbtn span { overflow: hidden; border-radius: 6px; } .hbtn .ht { position: relative; font-weight: normal; font-size: 36px; white-space: nowrap; }
+.hbtn:disabled { opacity: .65; cursor: default; filter: none; transform: none; }
+.hbtn:hover .tb-shine::before { animation: tb-shine .55s ease-out forwards; }
+.hcode { box-sizing: border-box; width: 240px; height: 95px; padding: 14.0px 0 0 6px; line-height: 1; border: 0; border-radius: 10px; background: var(--tt-field); color: #fff; font-family: MC, monospace; font-size: 56px; letter-spacing: 6px; display: flex; align-items: center; justify-content: center; outline: none; text-align: center; text-transform: uppercase; transition: background-color .35s; }
+.hcode.empty { opacity: .6; } input.hcode { width: 330px; } input.hcode::placeholder { color: #fff; opacity: .55; } input.hcode:placeholder-shown { font-size: 34px; letter-spacing: 2px; padding-top: 8.5px; }   /* text is centred using the font's own measurements */ input.hcode:focus { box-shadow: 0 0 0 4px var(--tt-ink); } input.hcode:disabled { -webkit-text-fill-color: #fff; opacity: .8; }
+#tToast { display: none; position: absolute; z-index: 6; height: 52px; padding: 0 24px; border-radius: 26px; align-items: center; font-family: MC, monospace; font-size: 26px; white-space: nowrap; pointer-events: none; box-shadow: 0 5px 0 rgba(0,0,0,.3); }
+#tToast.ok { background: #c3f73a; color: #2f2504; } #tToast.bad { background: #e2330a; color: #fff; }
+#tWait { display: none; position: absolute; left: 1430px; top: 900px; width: 440px; text-align: right; font-family: MC, monospace; font-size: 26px; color: var(--tt-ink); }
+.lcls:disabled { cursor: default; } .lcls:disabled:active { transform: none; } .lname:disabled { -webkit-text-fill-color: #fff; opacity: 1; }
+/* loading bar: thin capsule bottom-left (dark brown track + lime bar); when done it vanishes and a tiny tick + "assets loaded" stays */
+html { --tt-ldtrack: #2f2504; } html[data-theme=dark] { --tt-ldtrack: #000; }
+#tLoad { position: absolute; left: 28px; bottom: 24px; height: 16px; z-index: 21; display: flex; align-items: center; gap: 8px; font-family: MC, monospace; font-size: 14px; color: var(--tt-ink); pointer-events: none; transition: color .35s; }
+body:not(.on-title) #tLoad { display: none; }
+.ld-bar { width: 180px; height: 8px; border-radius: 4px; background: var(--tt-ldtrack); overflow: hidden; transition: opacity .4s, width .4s .1s; } .ld-bar i { display: block; height: 100%; width: 0; border-radius: 4px; background: #c3f73a; transition: width .2s; }
+.ld-ok { display: none; align-items: center; gap: 6px; opacity: .85; } #tLoad.done .ld-bar { opacity: 0; width: 0; } #tLoad.done .ld-ok { display: flex; }
+
+#tLoad { transition: color .35s, transform .5s ease-in, opacity .5s; } #tLoad.gone { transform: translateX(-320px); opacity: 0; }   /* after loading: "Assets loaded" stays a second, then slides off */

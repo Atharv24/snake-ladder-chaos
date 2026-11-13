@@ -19,12 +19,13 @@ for dp, _, files in os.walk(os.path.join(ROOT, "assets")):
             embed[rel] = "data:audio/mpeg;base64," + b64("assets/" + rel)
 
 css = rd("css/style.css").replace("url(../assets/Minecraft.ttf)", "url(data:font/ttf;base64," + b64("assets/Minecraft.ttf") + ")")
+css = css.replace("url(../assets/Little_Monster_DEMO.ttf)", "url(data:font/ttf;base64," + b64("assets/Little_Monster_DEMO.ttf") + ")")
 html = rd("index.html")
 html = re.sub(r'<link rel="stylesheet"[^>]*>', lambda m: "<style>" + css + "</style>", html)
 def inline_img(m):   # <img src="assets/x.svg"> written directly in index.html: embed as a data address
     return 'src="data:image/svg+xml;base64,' + b64("assets/" + m.group(1)) + '"'
 html = re.sub(r'src="assets/([^"]+\.svg)"', inline_img, html)
-scripts = re.findall(r'<script src="(js/[^"]+)"></script>', html)
+scripts = [s.split("?")[0] for s in re.findall(r'<script src="(js/[^"]+)"></script>', html)]   # (drop the ?v=3 cache-busting tail)
 html = re.sub(r'\s*<script src="js/[^"]+"></script>', "", html)
 bundle = "<script>window.EMBED=" + json.dumps(embed).replace("</", "<\\/") + ";</script>\n" + \
          "".join("<script>" + rd(s).replace("</script", "<\\/script") + "</script>\n" for s in scripts)
